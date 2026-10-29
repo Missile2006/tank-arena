@@ -1,5 +1,6 @@
 
 import { handleCollisions } from './collision.js';
+import { emitGameEvent } from '../events/bus.js';
 
 export class World {
   constructor() {
@@ -8,6 +9,8 @@ export class World {
 
     // Ідентифікатори об'єктів для видалення
     this.toRemove = new Set();
+
+    // Ігровий рахунок
     this.score = 0;
   }
 
@@ -36,8 +39,12 @@ export class World {
     }
   }
 
-  // Оновлення ігрового світу
+  // Надсилання подій гри через EventTarget
+  emit(type, detail = {}) {
+    emitGameEvent(type, detail);
+  }
 
+  // Оновлення ігрового світу
   step(dt) {
     // Оновлюємо всі активні сутності
     for (const entity of this.entities.values()) {
@@ -56,7 +63,6 @@ export class World {
     // Видаляємо знищені сутності наприкінці кроку
     this.sweep();
   }
-
 
   // Очищення знищених сутностей
   sweep() {

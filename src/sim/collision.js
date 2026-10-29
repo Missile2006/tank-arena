@@ -30,8 +30,8 @@ export function handleCollisions(world) {
       if (!circlesCollide(a, b)) {
         continue;
       }
-      
-      // Перевіряємо зіткнення танка з бонусом
+
+      // Зіткнення танка з аптечкою
       let ship = null;
       let pickup = null;
 
@@ -49,10 +49,64 @@ export function handleCollisions(world) {
         continue;
       }
 
+      // Зіткнення танка з астероїдом
+      let asteroid = null;
+      ship = null;
+
+      if (a.kind === 'ship' && b.kind === 'asteroid') {
+        ship = a;
+        asteroid = b;
+      } else if (b.kind === 'ship' && a.kind === 'asteroid') {
+        ship = b;
+        asteroid = a;
+      }
+
+      if (ship && asteroid) {
+        // Астероїд завдає 20 HP пошкодження
+        const damageApplied = ship.takeDamage(20);
+
+        if (damageApplied) {
+          world.emit('hit', {
+            targetId: ship.id,
+            targetKind: 'ship',
+            damage: 20,
+          });
+
+          // Невелике відштовхування танка
+          const dx = ship.position.x - asteroid.position.x;
+          const dy = ship.position.y - asteroid.position.y;
+
+          const distance = Math.hypot(dx, dy);
+
+          if (distance > 0) {
+            const pushStrength = 120;
+
+            ship.velocity.x += (dx / distance) * pushStrength;
+            ship.velocity.y += (dy / distance) * pushStrength;
+          }
+
+          // Вибух після знищення танка
+          if (ship.dead) {
+            const particles = createExplosion(ship.position, 20);
+
+            for (const particle of particles) {
+              world.spawn(particle);
+            }
+
+            world.emit('exploded', {
+              targetId: ship.id,
+              targetKind: 'ship',
+            });
+          }
+        }
+
+        continue;
+      }
+
+      // Визначаємо кулю та ціль
       let bullet = null;
       let target = null;
 
-      // Перевіряємо, чи один з об'єктів є кулею
       if (a.kind === 'bullet') {
         bullet = a;
         target = b;
@@ -61,7 +115,6 @@ export function handleCollisions(world) {
         target = a;
       }
 
-      // Куля може пошкодити танк або перешкоду
       if (
         bullet &&
         target &&
@@ -72,25 +125,37 @@ export function handleCollisions(world) {
           continue;
         }
 
-        
-      target.takeDamage(bullet.damage);
+        const damageApplied = target.takeDamage(bullet.damage);
 
-      // Якщо ціль знищена, створюємо вибух
-      if (target.dead) {
-        // За знищення перешкоди додаємо 100 очок
-        if (target.kind === 'asteroid') {
-          world.score += 100;
+        // Звук влучання лише за реального пошкодження
+        if (damageApplied !== false) {
+          world.emit('hit', {
+            targetId: target.id,
+            targetKind: target.kind,
+            damage: bullet.damage,
+          });
         }
 
-        const particles = createExplosion(target.position, 20);
+        // Якщо ціль знищена, створюємо вибух
+        if (target.dead) {
+          if (target.kind === 'asteroid') {
+            world.score += 100;
+          }
 
-        for (const particle of particles) {
-          world.spawn(particle);
+          const particles = createExplosion(target.position, 20);
+
+          for (const particle of particles) {
+            world.spawn(particle);
+          }
+
+          world.emit('exploded', {
+            targetId: target.id,
+            targetKind: target.kind,
+          });
         }
-      }
 
-      // Куля зникає після влучання
-      world.despawn(bullet);
+        // Куля зникає після влучання
+        world.despawn(bullet);
       }
     }
   }

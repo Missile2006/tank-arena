@@ -15,10 +15,17 @@ export class Asteroid extends Entity {
       kind: 'asteroid',
     });
 
+    // Здоров'я астероїда
     this.hp = hp;
+
+    // Індивідуальна швидкість руху
+    this.speed = 90 + Math.random() * 50;
+
+    // Час для невеликого коливання руху
+    this.moveTime = Math.random() * Math.PI * 2;
   }
 
-  // Перешкода отримує пошкодження
+  // Отримання пошкоджень від куль
   takeDamage(amount) {
     this.hp = Math.max(0, this.hp - amount);
 
@@ -27,8 +34,10 @@ export class Asteroid extends Entity {
     }
   }
 
-  // Поки що перешкода нерухома
+  // Рух астероїда
   update(dt) {
+    this.moveTime += dt;
+
     super.update(dt);
   }
 }

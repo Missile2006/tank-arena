@@ -1,5 +1,7 @@
+
 import './style.css';
 
+//import { runEventLoopExperiments } from './experiments/event-loop.js';
 import { createInput } from './input.js';
 import { Ship } from './sim/ship.js';
 import { World } from './sim/world.js';
@@ -10,7 +12,14 @@ import { drawHUD } from './render/hud.js';
 import { setupCanvas } from './render/canvas.js';
 import { applyHoming } from './sim/homing.js';
 import { createHealthPickup } from './sim/pickup.js';
+import { fetchJson, loadAll } from './assets/loader.js';
+import { drawLoading } from './render/loading.js';
+import { emitGameEvent } from './events/bus.js';
+import { createAudioSystem } from './audio/audio.js';
+import { Lobby } from './lobby/lobby.js';
+import { createLobbyUI } from './lobby/lobby-ui.js';
 
+// Налаштування ігрового поля
 const canvas = document.getElementById('gameCanvas');
 
 const WIDTH = 900;
@@ -18,55 +27,104 @@ const HEIGHT = 550;
 
 const { ctx } = setupCanvas(canvas, WIDTH, HEIGHT);
 
-// Створюємо систему керування
-const input = createInput();
+// Завантажені ресурси та аудіосистема
+let gameAssets = new Map();
+let audioContext = null;
+let audioSystem = null;
 
+// Лобі
+const lobby = new Lobby();
+const lobbyUI = createLobbyUI(lobby);
+
+let selectedRoom = null;
+let playerName = '';
+
+// Малювання спрайтів
+function drawSprite(id, x, y, width, height, frame = 0, angle = 0) {
+  const image = gameAssets.get(id);
+
+  if (!image) {
+    return false;
+  }
+
+  const frameSize = 64;
+  const columns = 4;
+
+  const sx = (frame % columns) * frameSize;
+  const sy = Math.floor(frame / columns) * frameSize;
+
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.rotate(angle);
+
+  ctx.drawImage(
+    image,
+    sx,
+    sy,
+    frameSize,
+    frameSize,
+    -width / 2,
+    -height / 2,
+    width,
+    height,
+  );
+
+  ctx.restore();
+
+  return true;
+}
+
+// Створення ігрового світу
+const input = createInput();
 const world = new World();
 
 let tank = world.spawn(new Ship(WIDTH / 2, HEIGHT / 2));
-
 let respawnTimer = 0;
 
-world.spawn(
-  new Asteroid({
-    position: new Vector2(200, 150),
-    radius: 30,
-  }),
-);
+// Астероїди створюватимуться після вибору кімнати
+let homingAsteroid = null;
 
-world.spawn(
-  new Asteroid({
-    position: new Vector2(700, 150),
-    radius: 35,
-  }),
-);
-
-world.spawn(
-  new Asteroid({
-    position: new Vector2(200, 400),
-    radius: 25,
-  }),
-);
-
-world.spawn(
-  new Asteroid({
-    position: new Vector2(700, 400),
-    radius: 30,
-  }),
-);
-// Один астероїд отримує поведінку самонаведення
-const homingAsteroid = [...world.ofKind('asteroid')][0];
 // Аптечка для відновлення здоров'я
-
 world.spawn(
   createHealthPickup(new Vector2(450, 350), 25),
 );
 
+// Попередня позиція танка для інтерполяції
 let previousTank = {
   x: tank.x,
   y: tank.y,
   angle: tank.angle,
 };
+
+// Створення астероїдів для вибраної кімнати
+function spawnRoomAsteroids(count) {
+  // Видаляємо астероїди попередньої кімнати
+  for (const asteroid of [...world.ofKind('asteroid')]) {
+    world.despawn(asteroid);
+  }
+
+  world.sweep();
+
+  // Розміщуємо астероїди навколо центру арени
+  for (let i = 0; i < count; i++) {
+    const angle = (i / count) * Math.PI * 2;
+
+    const x = WIDTH / 2 + Math.cos(angle) * 280;
+    const y = HEIGHT / 2 + Math.sin(angle) * 180;
+
+    world.spawn(
+      new Asteroid({
+        position: new Vector2(x, y),
+        radius: 25 + Math.random() * 10,
+      }),
+    );
+  }
+
+  // Перший астероїд буде переслідувати танк
+  homingAsteroid = [...world.ofKind('asteroid')][0] ?? null;
+
+  console.log(`Spawned ${count} asteroids`);
+}
 
 // Малювання ігрового поля
 function drawArena() {
@@ -95,99 +153,57 @@ function drawArena() {
 
 // Малювання танка
 function drawTank(renderTank) {
-  ctx.save();
+  // Під час невразливості танк блимає
+  if (tank.invulnerable) {
+    const blink = Math.floor(tank.animationTime * 10) % 2;
 
-  ctx.translate(renderTank.x, renderTank.y);
-  ctx.rotate(renderTank.angle);
+    if (blink === 0) {
+      return;
+    }
+  }
 
-  // Гусениці
-  ctx.fillStyle = '#111827';
-  ctx.fillRect(-25, -28, 12, 56);
-  ctx.fillRect(13, -28, 12, 56);
-
-  // Корпус
-  ctx.fillStyle = '#16a34a';
-  ctx.fillRect(-20, -25, 40, 50);
-
-  // Верхня частина корпусу
-  ctx.fillStyle = '#22c55e';
-  ctx.fillRect(-15, -20, 30, 40);
-
-  // Гармата
-  ctx.fillStyle = '#64748b';
-  ctx.fillRect(-5, -40, 10, 35);
-
-  // Башта
-  ctx.fillStyle = '#15803d';
-  ctx.beginPath();
-  ctx.arc(0, 0, 15, 0, Math.PI * 2);
-  ctx.fill();
-
-  // Центр башти
-  ctx.fillStyle = '#4ade80';
-  ctx.beginPath();
-  ctx.arc(0, 0, 7, 0, Math.PI * 2);
-  ctx.fill();
-
-  ctx.restore();
+  drawSprite(
+    'tank',
+    renderTank.x,
+    renderTank.y,
+    64,
+    64,
+    0,
+    renderTank.angle,
+  );
 }
 
+// Малювання куль
 function drawBullets() {
   for (const bullet of world.ofKind('bullet')) {
-    ctx.save();
-
-    ctx.fillStyle = '#facc15';
-    ctx.shadowColor = '#facc15';
-    ctx.shadowBlur = 12;
-
-    ctx.beginPath();
-    ctx.arc(
+    drawSprite(
+      'bullet',
       bullet.position.x,
       bullet.position.y,
-      bullet.radius,
+      24,
+      24,
       0,
-      Math.PI * 2,
+      0,
     );
-    ctx.fill();
-
-    ctx.restore();
   }
 }
 
+// Малювання астероїдів
 function drawAsteroids() {
   for (const asteroid of world.ofKind('asteroid')) {
+    drawSprite(
+      'asteroid',
+      asteroid.position.x,
+      asteroid.position.y,
+      asteroid.radius * 2,
+      asteroid.radius * 2,
+      0,
+      0,
+    );
+
+    // Відображення здоров'я астероїда
     ctx.save();
 
-    // Основне коло перешкоди
-    ctx.fillStyle = '#64748b';
-    ctx.strokeStyle = '#cbd5e1';
-    ctx.lineWidth = 3;
-
-    ctx.beginPath();
-    ctx.arc(
-      asteroid.position.x,
-      asteroid.position.y,
-      asteroid.radius,
-      0,
-      Math.PI * 2,
-    );
-    ctx.fill();
-    ctx.stroke();
-
-    // Внутрішня частина
-    ctx.fillStyle = '#475569';
-
-    ctx.beginPath();
-    ctx.arc(
-      asteroid.position.x,
-      asteroid.position.y,
-      asteroid.radius * 0.65,
-      0,
-      Math.PI * 2,
-    );
-    ctx.fill();
-
-    // Відображення запасу міцності
     ctx.fillStyle = '#ffffff';
     ctx.font = 'bold 14px Arial';
     ctx.textAlign = 'center';
@@ -203,11 +219,11 @@ function drawAsteroids() {
   }
 }
 
+// Малювання частинок вибуху
 function drawParticles() {
   for (const particle of world.ofKind('particle')) {
     ctx.save();
 
-    // Частинки поступово стають прозорими
     ctx.globalAlpha = particle.opacity;
 
     ctx.fillStyle = particle.color;
@@ -222,19 +238,20 @@ function drawParticles() {
       0,
       Math.PI * 2,
     );
+
     ctx.fill();
 
     ctx.restore();
   }
 }
 
+// Малювання аптечок
 function drawPickups() {
   for (const pickup of world.ofKind('pickup')) {
     const { x, y } = pickup.position;
 
     ctx.save();
 
-    // Зелене коло аптечки
     ctx.fillStyle = '#22c55e';
     ctx.strokeStyle = '#bbf7d0';
     ctx.lineWidth = 3;
@@ -244,7 +261,6 @@ function drawPickups() {
     ctx.fill();
     ctx.stroke();
 
-    // Білий медичний хрест
     ctx.fillStyle = '#ffffff';
     ctx.fillRect(x - 3, y - 9, 6, 18);
     ctx.fillRect(x - 9, y - 3, 18, 6);
@@ -253,6 +269,7 @@ function drawPickups() {
   }
 }
 
+// Пошук найближчого астероїда
 function findNearestAsteroid(position) {
   let nearest = null;
   let minDistance = Infinity;
@@ -269,17 +286,18 @@ function findNearestAsteroid(position) {
   return nearest;
 }
 
-// Оновлення фізики
+// Оновлення ігрової фізики
 function update(dt) {
-  // Якщо танк знищений, чекаємо 2 секунди
+  // Якщо танк знищений, чекаємо на відродження
   if (tank.dead) {
     respawnTimer += dt;
 
-    // Світ продовжує оновлювати кулі та частинки
     world.step(dt);
 
     if (respawnTimer >= 2) {
-      tank = world.spawn(new Ship(WIDTH / 2, HEIGHT / 2));
+      tank = world.spawn(
+        new Ship(WIDTH / 2, HEIGHT / 2),
+      );
 
       previousTank = {
         x: tank.x,
@@ -294,11 +312,23 @@ function update(dt) {
     return;
   }
 
+  // Керування танком
   const controls = {
-    forward: input.isDown('w') || input.isDown('arrowup'),
-    backward: input.isDown('s') || input.isDown('arrowdown'),
-    left: input.isDown('a') || input.isDown('arrowleft'),
-    right: input.isDown('d') || input.isDown('arrowright'),
+    forward:
+      input.isDown('w') ||
+      input.isDown('arrowup'),
+
+    backward:
+      input.isDown('s') ||
+      input.isDown('arrowdown'),
+
+    left:
+      input.isDown('a') ||
+      input.isDown('arrowleft'),
+
+    right:
+      input.isDown('d') ||
+      input.isDown('arrowright'),
   };
 
   previousTank = {
@@ -309,19 +339,32 @@ function update(dt) {
 
   tank.controls = controls;
 
+  // Постріл
   if (input.justPressed(' ')) {
     const bullet = tank.fire();
 
-    // Позначаємо кулю як самонавідну
     bullet.homing = true;
 
     world.spawn(bullet);
+
+    // Звукова подія пострілу
+    emitGameEvent('fired');
   }
 
 
-  // Самонаведення астероїда на танк
-  if (homingAsteroid && !homingAsteroid.dead) {
-    applyHoming(homingAsteroid, tank, dt, 2);
+  // Усі астероїди переслідують танк
+  for (const asteroid of world.ofKind('asteroid')) {
+    applyHoming(asteroid, tank, dt, 5);
+
+    // Обмежуємо максимальну швидкість астероїда
+    const velocity = asteroid.velocity;
+    const currentSpeed = velocity.length();
+
+    if (currentSpeed > asteroid.speed) {
+      asteroid.velocity = velocity.scale(
+        asteroid.speed / currentSpeed,
+      );
+    }
   }
 
   // Самонаведення куль на найближчий астероїд
@@ -330,15 +373,19 @@ function update(dt) {
       continue;
     }
 
-    const target = findNearestAsteroid(bullet.position);
+    const target = findNearestAsteroid(
+      bullet.position,
+    );
 
     if (target) {
       applyHoming(bullet, target, dt, 5);
     }
   }
 
+  // Оновлення світу та зіткнень
   world.step(dt);
 
+  // Перехід танка через межі арени
   if (!tank.dead) {
     tank.wrap(WIDTH, HEIGHT);
   }
@@ -346,32 +393,50 @@ function update(dt) {
   input.endStep();
 }
 
+// Інтерполяція кута
 function interpolateAngle(a, b, alpha) {
-  const difference = Math.atan2(Math.sin(b - a), Math.cos(b - a));
+  const difference = Math.atan2(
+    Math.sin(b - a),
+    Math.cos(b - a),
+  );
 
   return a + difference * alpha;
 }
 
+// Малювання кадру гри
 function render(alpha, stats) {
-  // Інтерполяція координат
-  // Враховуємо перехід через краї арени
   const dx =
-    ((tank.x - previousTank.x + WIDTH / 2 + WIDTH) % WIDTH) - WIDTH / 2;
+    ((tank.x - previousTank.x + WIDTH / 2 + WIDTH) %
+      WIDTH) -
+    WIDTH / 2;
 
   const dy =
-    ((tank.y - previousTank.y + HEIGHT / 2 + HEIGHT) % HEIGHT) - HEIGHT / 2;
+    ((tank.y - previousTank.y + HEIGHT / 2 + HEIGHT) %
+      HEIGHT) -
+    HEIGHT / 2;
 
   const renderTank = {
-    x: (((previousTank.x + dx * alpha) % WIDTH) + WIDTH) % WIDTH,
-    y: (((previousTank.y + dy * alpha) % HEIGHT) + HEIGHT) % HEIGHT,
-    angle: interpolateAngle(previousTank.angle, tank.angle, alpha),
+    x:
+      (((previousTank.x + dx * alpha) % WIDTH) +
+        WIDTH) %
+      WIDTH,
+
+    y:
+      (((previousTank.y + dy * alpha) % HEIGHT) +
+        HEIGHT) %
+      HEIGHT,
+
+    angle: interpolateAngle(
+      previousTank.angle,
+      tank.angle,
+      alpha,
+    ),
   };
 
   drawArena();
   drawAsteroids();
   drawPickups();
 
-  // Знищений танк не малюємо
   if (!tank.dead) {
     drawTank(renderTank);
   }
@@ -380,28 +445,207 @@ function render(alpha, stats) {
   drawParticles();
   drawHUD(ctx, stats);
 
-  // Ігровий рахунок та здоров'я
+  // Відображення рахунку та здоров'я
   ctx.save();
+
   ctx.fillStyle = '#ffffff';
   ctx.font = 'bold 18px Arial';
   ctx.textAlign = 'right';
 
-  ctx.fillText(`Score: ${world.score}`, WIDTH - 20, 30);
-  ctx.fillText(`HP: ${tank.hp}`, WIDTH - 20, 55);
+  ctx.fillText(
+    `Score: ${world.score}`,
+    WIDTH - 20,
+    30,
+  );
 
+  ctx.fillText(
+    `HP: ${tank.hp}`,
+    WIDTH - 20,
+    55,
+  );
+
+  // Відображення гравця та кімнати
+  if (selectedRoom) {
+    ctx.textAlign = 'left';
+    ctx.font = '14px Arial';
+
+    ctx.fillText(
+      `Player: ${playerName}`,
+      20,
+      HEIGHT - 40,
+    );
+
+    ctx.fillText(
+      `Room: ${selectedRoom.name}`,
+      20,
+      HEIGHT - 20,
+    );
+  }
+
+  // Повідомлення про відродження
   if (tank.dead) {
     ctx.textAlign = 'center';
     ctx.font = 'bold 24px Arial';
     ctx.fillStyle = '#facc15';
-    ctx.fillText('Відродження через 2 секунди...', WIDTH / 2, HEIGHT / 2);
+
+    ctx.fillText(
+      'Відродження через 2 секунди...',
+      WIDTH / 2,
+      HEIGHT / 2,
+    );
   }
 
   ctx.restore();
 }
 
+// Ігровий цикл
 const loop = createLoop({
   update,
   render,
 });
 
-loop.start();
+// Вхід гравця до вибраної кімнати
+lobby.addEventListener('joined', (event) => {
+  playerName = event.detail.playerName;
+  selectedRoom = event.detail.room;
+
+  console.log('Player:', playerName);
+  console.log('Selected room:', selectedRoom.name);
+  console.log('Arena config:', selectedRoom.config);
+
+  // Генеруємо астероїди для вибраної кімнати
+  spawnRoomAsteroids(
+    selectedRoom.config.asteroidCount,
+  );
+
+  // Приховуємо лобі
+  lobbyUI.hide();
+
+  // Join є жестом користувача:
+  // активуємо AudioContext безпосередньо після натискання
+  audioSystem.resume().catch((error) => {
+    console.warn('Audio resume failed:', error);
+  });
+
+  // Запускаємо гру тільки після Join
+  loop.start();
+});
+
+// Контролер завантаження
+let loadingController = null;
+
+// Завантаження ресурсів гри
+async function startGame() {
+  loadingController?.abort();
+
+  loadingController = new AbortController();
+
+  const signal = loadingController.signal;
+
+  drawLoading(
+    ctx,
+    canvas,
+    0,
+    1,
+    'Loading manifest...',
+  );
+
+  try {
+    // Завантажуємо manifest.json
+    const manifest = await fetchJson(
+      '/manifest.json',
+      signal,
+    );
+
+    audioContext ??= new AudioContext();
+
+    // Паралельно завантажуємо ресурси
+    gameAssets = await loadAll(
+      manifest,
+      signal,
+      audioContext,
+      (completed, total) => {
+        drawLoading(
+          ctx,
+          canvas,
+          completed,
+          total,
+        );
+      },
+    );
+
+    console.log(
+      'All assets loaded:',
+      [...gameAssets.keys()],
+    );
+
+    // Створюємо звукову систему
+    audioSystem = createAudioSystem(
+      audioContext,
+      gameAssets,
+    );
+
+    // Показуємо лобі після завантаження
+    lobbyUI.show();
+  } catch (error) {
+    if (signal.aborted) {
+      return;
+    }
+
+    // При помилці приховуємо лобі
+    lobbyUI.hide();
+
+    console.error(
+      'Asset loading failed:',
+      error,
+    );
+
+    drawLoading(
+      ctx,
+      canvas,
+      0,
+      1,
+      'Loading failed. Retry?',
+    );
+
+    showRetryButton();
+  }
+}
+
+// Кнопка повторного завантаження
+function showRetryButton() {
+  let button = document.getElementById(
+    'retryLoading',
+  );
+
+  if (!button) {
+    button = document.createElement('button');
+
+    button.id = 'retryLoading';
+    button.textContent = 'Retry Loading';
+
+    button.style.position = 'fixed';
+    button.style.top = '55%';
+    button.style.left = '50%';
+    button.style.transform = 'translate(-50%, -50%)';
+
+    button.style.padding = '12px 24px';
+    button.style.fontSize = '18px';
+    button.style.cursor = 'pointer';
+    button.style.zIndex = '1000';
+
+    document.body.appendChild(button);
+  }
+
+  button.style.display = 'block';
+
+  button.onclick = () => {
+    button.style.display = 'none';
+
+    startGame();
+  };
+}
+
+// Початкове завантаження ресурсів
+// Гра НЕ запускається до натискання JOIN GAME
+startGame();

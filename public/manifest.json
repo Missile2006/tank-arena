@@ -1,0 +1,38 @@
+
+{
+  "version": "1.0.0",
+  "images": [
+    {
+      "id": "tank",
+      "url": "/assets/sprites/tank.png"
+    },
+    {
+      "id": "bullet",
+      "url": "/assets/sprites/bullet.png"
+    },
+    {
+      "id": "asteroid",
+      "url": "/assets/sprites/asteroid.png"
+    }
+  ],
+  "audio": [
+    {
+      "id": "fire",
+      "url": "/assets/audio/fire.wav"
+    },
+    {
+      "id": "hit",
+      "url": "/assets/audio/hit.wav"
+    },
+    {
+      "id": "explosion",
+      "url": "/assets/audio/explosion.wav"
+    }
+  ],
+  "data": [
+    {
+      "id": "rooms",
+      "url": "/api/rooms.json"
+    }
+  ]
+}

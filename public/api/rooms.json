@@ -1,0 +1,37 @@
+{
+  "rooms": [
+    {
+      "id": "arena-classic",
+      "name": "Classic Arena",
+      "maxPlayers": 4,
+      "players": 0,
+      "config": {
+        "width": 900,
+        "height": 550,
+        "asteroidCount": 6
+      }
+    },
+    {
+      "id": "arena-survival",
+      "name": "Survival Arena",
+      "maxPlayers": 2,
+      "players": 0,
+      "config": {
+        "width": 900,
+        "height": 550,
+        "asteroidCount": 12
+      }
+    },
+    {
+      "id": "arena-training",
+      "name": "Training Arena",
+      "maxPlayers": 1,
+      "players": 0,
+      "config": {
+        "width": 900,
+        "height": 550,
+        "asteroidCount": 3
+      }
+    }
+  ]
+}

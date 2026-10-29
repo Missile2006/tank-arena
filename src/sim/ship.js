@@ -3,7 +3,6 @@ import { Entity } from './entity.js';
 import { Vector2 } from './vector.js';
 import { Bullet } from './bullet.js';
 
-// Чиста функція фізики з лабораторної №1
 export function integrate(ship, input, dt) {
   const acceleration = 220;
   const maxSpeed = 180;
@@ -70,24 +69,41 @@ export class Ship extends Entity {
     this.angle = 0;
     this.width = 40;
     this.height = 50;
+
+    // Тривалість невразливості після зіткнення
+    this.invulnerabilityTimer = 0;
+
+    // Час існування танка для ефекту блимання
+    this.animationTime = 0;
   }
 
   get hp() {
     return this.#hp;
   }
-  
+
+  get invulnerable() {
+    return this.invulnerabilityTimer > 0;
+  }
+
+  // Отримання пошкоджень
   takeDamage(amount) {
-    if (this.dead || amount <= 0) {
-      return;
+    if (this.dead || amount <= 0 || this.invulnerable) {
+      return false;
     }
 
     this.#hp = Math.max(0, this.#hp - amount);
 
+    // Після удару танк невразливий 1 секунду
+    this.invulnerabilityTimer = 1;
+
     if (this.#hp === 0) {
       this.destroy();
     }
+
+    return true;
   }
 
+  // Відновлення здоров'я
   heal(amount) {
     if (this.dead || amount <= 0) {
       return;
@@ -95,7 +111,6 @@ export class Ship extends Entity {
 
     this.#hp = Math.min(100, this.#hp + amount);
   }
-
 
   get x() {
     return this.position.x;
@@ -114,6 +129,16 @@ export class Ship extends Entity {
   }
 
   update(dt, input = this.controls ?? {}) {
+    // Зменшуємо час невразливості
+    if (this.invulnerabilityTimer > 0) {
+      this.invulnerabilityTimer = Math.max(
+        0,
+        this.invulnerabilityTimer - dt,
+      );
+    }
+
+    this.animationTime += dt;
+
     const state = {
       x: this.position.x,
       y: this.position.y,
@@ -137,17 +162,18 @@ export class Ship extends Entity {
   }
 
   fire() {
-    // Напрямок, у який повернута гармата танка
     const direction = new Vector2(
       Math.sin(this.angle),
       -Math.cos(this.angle),
     );
 
-    // Куля з'являється на кінці гармати
-    const muzzlePosition = this.position.add(direction.scale(40));
+    const muzzlePosition = this.position.add(
+      direction.scale(40),
+    );
 
-    // Швидкість кулі з урахуванням руху танка
-    const bulletVelocity = direction.scale(350).add(this.velocity);
+    const bulletVelocity = direction
+      .scale(350)
+      .add(this.velocity);
 
     return new Bullet({
       position: muzzlePosition,
@@ -157,5 +183,4 @@ export class Ship extends Entity {
       damage: 25,
     });
   }
-
 }
