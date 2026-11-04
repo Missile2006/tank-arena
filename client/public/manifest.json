@@ -32,7 +32,7 @@
   "data": [
     {
       "id": "rooms",
-      "url": "/api/rooms.json"
+      "url": "/api/rooms"
     }
   ]
 }

@@ -1,6 +1,8 @@
 
 import './style.css';
 
+import { createChatUI } from './net/chat.js';
+import { GameSocket } from './net/socket.js';
 //import { runEventLoopExperiments } from './experiments/event-loop.js';
 import { createInput } from './input.js';
 import { Ship } from './sim/ship.js';
@@ -36,8 +38,13 @@ let audioSystem = null;
 const lobby = new Lobby();
 const lobbyUI = createLobbyUI(lobby);
 
+// WebSocket-з'єднання із сервером
+const gameSocket = new GameSocket('/ws');
+const chatUI = createChatUI(gameSocket);
+
 let selectedRoom = null;
 let playerName = '';
+let playerId = null;
 
 // Малювання спрайтів
 function drawSprite(id, x, y, width, height, frame = 0, angle = 0) {
@@ -504,31 +511,83 @@ const loop = createLoop({
   render,
 });
 
-// Вхід гравця до вибраної кімнати
+
+ // Вхід гравця до вибраної кімнати
 lobby.addEventListener('joined', (event) => {
   playerName = event.detail.playerName;
   selectedRoom = event.detail.room;
 
   console.log('Player:', playerName);
   console.log('Selected room:', selectedRoom.name);
-  console.log('Arena config:', selectedRoom.config);
 
-  // Генеруємо астероїди для вибраної кімнати
-  spawnRoomAsteroids(
-    selectedRoom.config.asteroidCount,
+  // Підключаємося до WebSocket-сервера
+  gameSocket.connect(selectedRoom.id, playerName);
+
+  // Поки сервер не підтвердив вхід,
+  // ігровий цикл не запускаємо
+  console.log('Waiting for server confirmation...');
+});
+
+// Сервер підтвердив вхід до кімнати
+gameSocket.addEventListener('message', (event) => {
+  const message = event.detail;
+
+  if (message.type === 'joined') {
+    playerId = message.playerId;
+    selectedRoom = message.room;
+
+    console.log('Successfully joined room!');
+    console.log('Player ID:', playerId);
+    console.log('Room:', selectedRoom.name);
+
+    // Налаштовуємо астероїди відповідно до кімнати
+    spawnRoomAsteroids(
+      selectedRoom.config.asteroidCount,
+    );
+
+    // Приховуємо лобі після підтвердження сервера
+    lobbyUI.hide();
+    chatUI.clear();
+    chatUI.show();
+
+    // Активуємо аудіосистему
+    audioSystem.resume().catch((error) => {
+      console.warn('Audio resume failed:', error);
+    });
+
+    // Запускаємо гру
+    loop.start();
+  }
+
+  if (message.type === 'players') {
+    console.log('Players in room:', message.players);
+  }
+
+  if (message.type === 'chat') {
+    chatUI.addMessage(
+    message.playerName,
+      message.text
+    );
+  }
+
+  if (message.type === 'error') {
+    console.error('Server error:', message.message);
+  }
+});
+
+// Повідомлення про втрату з'єднання
+gameSocket.addEventListener('disconnected', (event) => {
+  console.warn(
+    'Disconnected from server:',
+    event.detail,
   );
+});
 
-  // Приховуємо лобі
-  lobbyUI.hide();
-
-  // Join є жестом користувача:
-  // активуємо AudioContext безпосередньо після натискання
-  audioSystem.resume().catch((error) => {
-    console.warn('Audio resume failed:', error);
-  });
-
-  // Запускаємо гру тільки після Join
-  loop.start();
+// Спроба повторного підключення
+gameSocket.addEventListener('reconnecting', (event) => {
+  console.log(
+    `Reconnecting in ${event.detail.delay} ms...`,
+  );
 });
 
 // Контролер завантаження
