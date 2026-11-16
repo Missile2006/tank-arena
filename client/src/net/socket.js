@@ -1,4 +1,7 @@
 
+import { decodeSnapshot } from 'tank-arena-shared/protocol';
+import { NetworkSimulator } from './network-simulator.js';
+
 export class GameSocket extends EventTarget {
   constructor(url = '/ws') {
     super();
@@ -17,6 +20,21 @@ export class GameSocket extends EventTarget {
 
     this.roomId = null;
     this.playerName = null;
+
+    this.networkSimulator = new NetworkSimulator();
+    this.networkStats = {
+      bytesReceived: 0,
+      bytesPerSecond: 0,
+      lastSnapshotTime: 0,
+      rtt: 0,
+    };
+
+    this.lastBytesCheck = performance.now();
+    this.bytesSinceLastCheck = 0;
+    this.pingSequence = 0;
+    this.pendingPings = new Map();
+    this.lastPingTime = 0;
+    this.pingIntervalMs = 2000;
   }
 
   connect(roomId, playerName) {
@@ -51,6 +69,10 @@ export class GameSocket extends EventTarget {
     this.isJoined = false;
 
     const socket = new WebSocket(url);
+
+    // Отримуємо бінарні повідомлення як ArrayBuffer
+    socket.binaryType = 'arraybuffer';
+
     this.socket = socket;
 
     socket.addEventListener('open', () => {
@@ -58,12 +80,19 @@ export class GameSocket extends EventTarget {
 
       this.reconnectAttempts = 0;
 
-      // Першим повідомленням завжди надсилаємо join
+      const requestedProtocol = new URLSearchParams(
+        window.location.search,
+      ).get('protocol');
+
+      const protocolMode =
+        requestedProtocol === 'binary' ? 'binary' : 'json';
+
       socket.send(
         JSON.stringify({
           type: 'join',
           roomId: this.roomId,
           playerName: this.playerName,
+          protocolMode,
         }),
       );
 
@@ -72,25 +101,80 @@ export class GameSocket extends EventTarget {
 
     socket.addEventListener('message', (event) => {
       if (socket !== this.socket) return;
+      const messageBytes =
+        event.data instanceof ArrayBuffer
+          ? event.data.byteLength
+          : new TextEncoder().encode(event.data).byteLength;
+
+      this.networkStats.bytesReceived += messageBytes;
+      this.bytesSinceLastCheck += messageBytes;
+
+      const now = performance.now();
+      const elapsed = now - this.lastBytesCheck;
+
+      if (elapsed >= 1000) {
+        this.networkStats.bytesPerSecond =
+          (this.bytesSinceLastCheck * 1000) / elapsed;
+
+        this.bytesSinceLastCheck = 0;
+        this.lastBytesCheck = now;
+      }
 
       let message;
 
       try {
-        message = JSON.parse(event.data);
-      } catch {
+        if (event.data instanceof ArrayBuffer) {
+          // Декодування бінарного snapshot
+          message = decodeSnapshot(event.data);
+        } else {
+          // Звичайні JSON-повідомлення
+          message = JSON.parse(event.data);
+        }
+      } catch (error) {
+        console.error('Message decoding error:', error);
         return;
       }
 
       if (message.type === 'joined') {
         this.flushQueue();
       }
+      if (message.type === 'pong') {
+        const sentAt = this.pendingPings.get(message.id);
 
-      this.dispatchEvent(
-        new CustomEvent('message', {
-          detail: message,
-        }),
-      );
+        if (sentAt !== undefined) {
+          const measuredRtt = performance.now() - sentAt;
+
+          this.networkStats.rtt =
+            this.networkStats.rtt === 0
+              ? measuredRtt
+              : this.networkStats.rtt * 0.8 + measuredRtt * 0.2;
+
+          this.pendingPings.delete(message.id);
+        }
+
+        return;
+      }
+
+      const deliverMessage = () => {
+        if (socket !== this.socket) return;
+
+        this.dispatchEvent(
+          new CustomEvent('message', {
+            detail: message,
+          }),
+        );
+      };
+
+      if (message.type === 'snapshot') {
+        this.networkSimulator.receive(() => {
+          this.networkStats.lastSnapshotTime = performance.now();
+          deliverMessage();
+        });
+      } else {
+        deliverMessage();
+      }
     });
+
 
     socket.addEventListener('close', (event) => {
       if (socket !== this.socket) return;
@@ -170,6 +254,45 @@ export class GameSocket extends EventTarget {
       this.isJoined = false;
       this.openConnection();
     }, delay);
+  }
+  updatePing() {
+    if (
+      !this.isJoined ||
+      this.socket?.readyState !== WebSocket.OPEN
+    ) {
+      return;
+    }
+
+    const now = performance.now();
+
+    if (now - this.lastPingTime < this.pingIntervalMs) {
+      return;
+    }
+
+    this.lastPingTime = now;
+    this.pingSequence++;
+
+    // Не накопичуємо застарілі запити
+    this.pendingPings.clear();
+    this.pendingPings.set(this.pingSequence, now);
+
+    this.socket.send(
+      JSON.stringify({
+        type: 'ping',
+        id: this.pingSequence,
+      }),
+    );
+  }
+  getNetworkStats() {
+    const simulatorStats = this.networkSimulator.getStats();
+
+    return {
+      ...this.networkStats,
+      ...simulatorStats,
+      snapshotAge: this.networkStats.lastSnapshotTime
+        ? performance.now() - this.networkStats.lastSnapshotTime
+        : 0,
+    };
   }
 
   disconnect() {

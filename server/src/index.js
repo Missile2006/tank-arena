@@ -8,6 +8,8 @@ import { config } from './config.js';
 import { RoomManager } from './room-manager.js';
 import { setupWebSocket } from './websocket.js';
 import { createEventLogger } from './logger.js';
+import { createGameLoop } from './game-loop.js';
+import { encodeSnapshot } from 'tank-arena-shared/protocol';
 
 const serverDir = path.dirname(fileURLToPath(import.meta.url));
 
@@ -18,6 +20,48 @@ const clientDistDir = path.resolve(
 
 const roomManager = new RoomManager();
 const eventLogger = createEventLogger(config.logDir);
+
+
+const gameLoop = createGameLoop(({ tick, dt }) => {
+  for (const room of roomManager.rooms.values()) {
+    if (!room.simulation || room.playerCount === 0) {
+      continue;
+    }
+
+    room.simulation.update(dt);
+
+    const snapshot = room.simulation.getSnapshot();
+
+    // Підготовка двох форматів одного стану гри
+    const jsonData = JSON.stringify(snapshot);
+    const binaryData = encodeSnapshot(snapshot);
+
+    for (const player of room.players.values()) {
+      const socket = player.socket;
+
+      if (
+        !socket ||
+        socket.readyState !== 1 ||
+        socket.bufferedAmount >= 1024 * 1024
+      ) {
+        continue;
+      }
+
+      // Поки що JSON використовується за замовчуванням
+      const useBinary = socket.protocolMode === 'binary';
+
+      if (useBinary) {
+        socket.send(binaryData, { binary: true });
+      } else {
+        socket.send(jsonData);
+      }
+    }
+  }
+
+  if (tick > 0 && tick % 300 === 0) {
+    console.log(`Game loop tick: ${tick}`);
+  }
+});
 
 console.log('Event log:', eventLogger.logPath);
 
@@ -59,7 +103,6 @@ async function serveStaticFile(req, res, pathname) {
     sendJson(res, 400, { error: 'Invalid path' });
     return;
   }
-
   if (
     decodedPath.includes('\0') ||
     decodedPath.includes('\\') ||
@@ -243,6 +286,7 @@ const wss = setupWebSocket(
   eventLogger,
 );
 
+
 server.listen(config.port, config.host, () => {
   console.log('=================================');
   console.log(' TANK ARENA SERVER');
@@ -252,7 +296,11 @@ server.listen(config.port, config.host, () => {
   );
   console.log(`Logs directory: ${config.logDir}`);
   console.log('Status: running');
+
+  gameLoop.start();
+  console.log('Game loop started: 30 ticks/sec');
 });
+
 
 let shuttingDown = false;
 
@@ -262,6 +310,7 @@ async function gracefulShutdown(signal) {
   }
 
   shuttingDown = true;
+  gameLoop.stop();
 
   console.log(`\nReceived ${signal}`);
   console.log('Shutting down server...');

@@ -1,5 +1,6 @@
 
 import { EventEmitter } from 'node:events';
+import { GameSimulation } from './game-simulation.js';
 
 export class Room extends EventEmitter {
   constructor({ id, name, maxPlayers = 4, asteroidCount = 6 }) {
@@ -12,6 +13,7 @@ export class Room extends EventEmitter {
 
     // Гравці кімнати
     this.players = new Map();
+    this.simulation = new GameSimulation(this);
   }
 
   // Кількість гравців
@@ -40,6 +42,7 @@ export class Room extends EventEmitter {
     };
 
     this.players.set(playerId, player);
+    this.simulation.addPlayer(playerId);
 
     this.emit('playerJoined', {
       roomId: this.id,
@@ -58,6 +61,7 @@ export class Room extends EventEmitter {
     }
 
     this.players.delete(playerId);
+    this.simulation.removePlayer(playerId);
 
     this.emit('playerLeft', {
       roomId: this.id,

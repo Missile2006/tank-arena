@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { WebSocket, WebSocketServer } from 'ws';
 
 const MAX_MESSAGE_BYTES = 4096;
-const MAX_MESSAGES_PER_SECOND = 20;
+const MAX_MESSAGES_PER_SECOND = 60;
 const MAX_BUFFERED_BYTES = 1024 * 1024;
 
 function sendJson(socket, message) {
@@ -105,6 +105,25 @@ export function setupWebSocket(server, roomManager, eventLogger) {
         socket.close(1008, 'Invalid message format');
         return;
       }
+      if (message.type === 'ping') {
+        if (!joined) {
+          return;
+        }
+
+        if (
+          !Number.isSafeInteger(message.id) ||
+          message.id < 0
+        ) {
+          return;
+        }
+
+        sendJson(socket, {
+          type: 'pong',
+          id: message.id,
+        });
+
+        return;
+      }
 
       // Вхід у кімнату
       if (message.type === 'join') {
@@ -141,6 +160,10 @@ export function setupWebSocket(server, roomManager, eventLogger) {
 
         currentRoom = room;
         joined = true;
+
+        // Режим передавання ігрових snapshot
+        socket.protocolMode =
+          message.protocolMode === 'binary' ? 'binary' : 'json';
 
         clearTimeout(joinTimeout);
 
@@ -201,6 +224,43 @@ export function setupWebSocket(server, roomManager, eventLogger) {
             roomId: currentRoom.id,
             text: message.text.trim(),
         });
+
+        return;
+      }
+
+
+      // Команди керування кораблем
+      if (message.type === 'input') {
+        if (
+          !joined ||
+          !currentRoom ||
+          !Number.isSafeInteger(message.seq) ||
+          message.seq < 1 ||
+          typeof message.thrust !== 'boolean' ||
+          typeof message.backward !== 'boolean' ||
+          typeof message.left !== 'boolean' ||
+          typeof message.right !== 'boolean' ||
+          typeof message.fire !== 'boolean'
+        ) {
+          socket.close(1008, 'Invalid input');
+          return;
+        }
+
+        const accepted = currentRoom.simulation.setInput(
+          playerId,
+          {
+            seq: message.seq,
+            thrust: message.thrust,
+            backward: message.backward,
+            left: message.left,
+            right: message.right,
+            fire: message.fire,
+          },
+        );
+
+        if (!accepted) {
+          return;
+        }
 
         return;
       }

@@ -1,8 +1,8 @@
-
 import './style.css';
 
 import { createChatUI } from './net/chat.js';
 import { GameSocket } from './net/socket.js';
+import { createNetgraph } from './net/netgraph.js';
 //import { runEventLoopExperiments } from './experiments/event-loop.js';
 import { createInput } from './input.js';
 import { Ship } from './sim/ship.js';
@@ -16,10 +16,15 @@ import { applyHoming } from './sim/homing.js';
 import { createHealthPickup } from './sim/pickup.js';
 import { fetchJson, loadAll } from './assets/loader.js';
 import { drawLoading } from './render/loading.js';
-import { emitGameEvent } from './events/bus.js';
+import { emitGameEvent, gameEvents } from './events/bus.js';
 import { createAudioSystem } from './audio/audio.js';
 import { Lobby } from './lobby/lobby.js';
 import { createLobbyUI } from './lobby/lobby-ui.js';
+import {
+  createShip,
+  integrate as integrateNetworkShip,
+  FIXED_DT,
+} from 'tank-arena-shared/simulation';
 
 // Налаштування ігрового поля
 const canvas = document.getElementById('gameCanvas');
@@ -40,11 +45,46 @@ const lobbyUI = createLobbyUI(lobby);
 
 // WebSocket-з'єднання із сервером
 const gameSocket = new GameSocket('/ws');
+const netgraph = createNetgraph();
 const chatUI = createChatUI(gameSocket);
 
 let selectedRoom = null;
 let playerName = '';
 let playerId = null;
+
+// Лабораторна №5: нумерація команд керування
+let inputSequence = 0;
+let inputAccumulator = 0;
+
+const NETWORK_INPUT_DT = 1 / 30;
+
+// Останній стан кораблів, отриманий від сервера
+let serverPlayers = [];
+let serverBullets = [];
+let serverAsteroids = [];
+let asteroidExplosions = [];
+// Останній підтверджений сервером стан здоров’я кожного танка
+const previousPlayerStates = new Map();
+
+let predictedBullets = [];
+let lastPredictedFireTime = -Infinity;
+
+const BULLET_SPEED = 250;
+const BULLET_LIFETIME = 1.5;
+const BULLET_FIRE_INTERVAL_MS = 200;
+const snapshotHistory = [];
+const INTERPOLATION_DELAY_MS = 100;
+const MAX_SNAPSHOT_HISTORY = 30;
+// Client-side prediction
+let predictedShip = null;
+let latestServerTick = -1;
+let pendingInputs = [];
+let correctionX = 0;
+let correctionY = 0;
+
+const CORRECTION_SPEED = 12;
+// Лабораторна №5: штучна затримка серверних даних
+const NETWORK_DELAY_MS = 0;
 
 // Малювання спрайтів
 function drawSprite(id, x, y, width, height, frame = 0, angle = 0) {
@@ -158,6 +198,112 @@ function drawArena() {
   }
 }
 
+function getInterpolatedPlayers() {
+  if (snapshotHistory.length < 2) {
+    return serverPlayers;
+  }
+
+  const renderTime =
+    performance.now() - INTERPOLATION_DELAY_MS;
+
+  let older = snapshotHistory[0];
+  let newer = snapshotHistory[snapshotHistory.length - 1];
+
+  for (let i = 0; i < snapshotHistory.length - 1; i++) {
+    const current = snapshotHistory[i];
+    const next = snapshotHistory[i + 1];
+
+    if (
+      current.time <= renderTime &&
+      next.time >= renderTime
+    ) {
+      older = current;
+      newer = next;
+      break;
+    }
+  }
+
+  const duration = newer.time - older.time;
+
+  const alpha =
+    duration > 0
+      ? Math.max(
+          0,
+          Math.min(1, (renderTime - older.time) / duration),
+        )
+      : 1;
+
+  return newer.players.map((player) => {
+    const previous = older.players.find(
+      (item) => item.id === player.id,
+    );
+
+    if (!previous) {
+      return player;
+    }
+
+    return {
+      ...player,
+      x: previous.x + (player.x - previous.x) * alpha,
+      y: previous.y + (player.y - previous.y) * alpha,
+      angle:
+        previous.angle +
+        (player.angle - previous.angle) * alpha,
+    };
+  });
+}
+
+// Шкала HP прив'язана до позиції, на якій танк намальований.
+function drawHealthBar(x, y, hp = 100) {
+  const health = Math.max(0, Math.min(100, Number(hp) || 0));
+  const width = 52;
+  const height = 7;
+  const barX = x - width / 2;
+  const barY = y - 58;
+
+  ctx.save();
+  ctx.fillStyle = '#202938';
+  ctx.fillRect(barX, barY, width, height);
+  ctx.fillStyle = health > 60 ? '#22c55e' : health > 30 ? '#eab308' : '#ef4444';
+  ctx.fillRect(barX, barY, width * (health / 100), height);
+  ctx.strokeStyle = '#f8fafc';
+  ctx.lineWidth = 1;
+  ctx.strokeRect(barX, barY, width, height);
+  ctx.font = '11px Arial';
+  ctx.textAlign = 'center';
+  ctx.fillStyle = '#ffffff';
+  ctx.fillText(`${health} HP`, x, barY - 5);
+  ctx.restore();
+}
+
+function drawServerPlayers() {
+  const interpolatedPlayers = getInterpolatedPlayers();
+
+  for (const player of interpolatedPlayers) {
+    const isLocalPlayer = player.id === playerId;
+    const authoritativePlayer = serverPlayers.find((item) => item.id === player.id) ?? player;
+
+    // Знищений танк не повинен залишатися на арені.
+    if (authoritativePlayer.destroyed) {
+      continue;
+    }
+
+    const renderPlayer = isLocalPlayer && predictedShip ? predictedShip : player;
+    const renderX = renderPlayer.x + (isLocalPlayer ? correctionX : 0);
+    const renderY = renderPlayer.y + (isLocalPlayer ? correctionY : 0);
+
+    drawSprite('tank', renderX, renderY, 64, 64, 0, renderPlayer.angle);
+    drawHealthBar(renderX, renderY, authoritativePlayer.hp ?? 100);
+
+    ctx.save();
+    ctx.font = '14px Arial';
+    ctx.textAlign = 'center';
+    ctx.fillStyle = isLocalPlayer ? '#22c55e' : '#facc15';
+    ctx.fillText(isLocalPlayer ? 'YOU' : 'PLAYER', renderX, renderY - 72);
+    ctx.restore();
+  }
+}
+
 // Малювання танка
 function drawTank(renderTank) {
   // Під час невразливості танк блимає
@@ -180,6 +326,54 @@ function drawTank(renderTank) {
   );
 }
 
+function drawServerBullets() {
+  for (const bullet of serverBullets) {
+    const drawn = drawSprite(
+      'bullet',
+      bullet.x,
+      bullet.y,
+      24,
+      24,
+      0,
+      0,
+    );
+
+    // Якщо спрайт кулі не завантажився,
+    // малюємо невелике помаранчеве коло
+    if (!drawn) {
+      ctx.save();
+
+      ctx.fillStyle = '#f59e0b';
+      ctx.beginPath();
+      ctx.arc(bullet.x, bullet.y, 5, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.restore();
+    }
+  }
+}
+function drawPredictedBullets() {
+  for (const bullet of predictedBullets) {
+    const drawn = drawSprite(
+      'bullet',
+      bullet.x,
+      bullet.y,
+      24,
+      24,
+      0,
+      0,
+    );
+
+    if (!drawn) {
+      ctx.save();
+      ctx.fillStyle = '#facc15';
+      ctx.beginPath();
+      ctx.arc(bullet.x, bullet.y, 5, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+    }
+  }
+}
 // Малювання куль
 function drawBullets() {
   for (const bullet of world.ofKind('bullet')) {
@@ -194,21 +388,76 @@ function drawBullets() {
     );
   }
 }
+function createAsteroidExplosion(x, y) {
+  const particles = [];
+
+  for (let i = 0; i < 18; i++) {
+    const angle = (i / 18) * Math.PI * 2;
+    const speed = 40 + Math.random() * 100;
+
+    particles.push({
+      x,
+      y,
+      vx: Math.cos(angle) * speed,
+      vy: Math.sin(angle) * speed,
+      life: 0.6,
+      maxLife: 0.6,
+      radius: 2 + Math.random() * 4,
+    });
+  }
+
+  asteroidExplosions.push(...particles);
+
+  gameEvents.dispatchEvent(new Event('exploded'));
+}
+
+function updateAsteroidExplosions(dt) {
+  for (const particle of asteroidExplosions) {
+    particle.x += particle.vx * dt;
+    particle.y += particle.vy * dt;
+    particle.life -= dt;
+  }
+
+  asteroidExplosions = asteroidExplosions.filter(
+    (particle) => particle.life > 0,
+  );
+}
+
+function drawAsteroidExplosions() {
+  ctx.save();
+
+  for (const particle of asteroidExplosions) {
+    ctx.globalAlpha = particle.life / particle.maxLife;
+    ctx.fillStyle = '#f97316';
+
+    ctx.beginPath();
+    ctx.arc(
+      particle.x,
+      particle.y,
+      particle.radius,
+      0,
+      Math.PI * 2,
+    );
+    ctx.fill();
+  }
+
+  ctx.restore();
+}
 
 // Малювання астероїдів
 function drawAsteroids() {
-  for (const asteroid of world.ofKind('asteroid')) {
+  for (const asteroid of serverAsteroids) {
     drawSprite(
       'asteroid',
-      asteroid.position.x,
-      asteroid.position.y,
+      asteroid.x,
+      asteroid.y,
       asteroid.radius * 2,
       asteroid.radius * 2,
       0,
       0,
     );
 
-    // Відображення здоров'я астероїда
+    // Display asteroid health
     ctx.save();
 
     ctx.fillStyle = '#ffffff';
@@ -218,8 +467,8 @@ function drawAsteroids() {
 
     ctx.fillText(
       String(asteroid.hp),
-      asteroid.position.x,
-      asteroid.position.y,
+      asteroid.x,
+      asteroid.y,
     );
 
     ctx.restore();
@@ -293,8 +542,165 @@ function findNearestAsteroid(position) {
   return nearest;
 }
 
+
+function reconcileLocalShip(serverShip) {
+  if (!serverShip) {
+    return;
+  }
+
+  const oldX = predictedShip?.x ?? serverShip.x;
+  const oldY = predictedShip?.y ?? serverShip.y;
+
+  const acknowledgedSeq =
+    serverShip.lastProcessedSeq ?? 0;
+
+  pendingInputs = pendingInputs.filter(
+    (command) => command.seq > acknowledgedSeq,
+  );
+
+  predictedShip = {
+    id: serverShip.id,
+    x: serverShip.x,
+    y: serverShip.y,
+    vx: serverShip.vx,
+    vy: serverShip.vy,
+    angle: serverShip.angle,
+  };
+
+  for (const command of pendingInputs) {
+    integrateNetworkShip(
+      predictedShip,
+      command,
+      FIXED_DT,
+    );
+  }
+
+  // Зберігаємо різницю між старим і новим положенням
+  correctionX += oldX - predictedShip.x;
+  correctionY += oldY - predictedShip.y;
+}
+function predictBullet() {
+  if (!predictedShip || serverPlayers.find((ship) => ship.id === playerId)?.destroyed) return;
+
+  const now = performance.now();
+
+  if (now - lastPredictedFireTime < BULLET_FIRE_INTERVAL_MS) {
+    return;
+  }
+
+  lastPredictedFireTime = now;
+  gameEvents.dispatchEvent(new Event('fired'));
+
+  const directionX = Math.sin(predictedShip.angle);
+  const directionY = -Math.cos(predictedShip.angle);
+
+  predictedBullets.push({
+    x: predictedShip.x + directionX * 40,
+    y: predictedShip.y + directionY * 40,
+
+    vx: predictedShip.vx + directionX * BULLET_SPEED,
+    vy: predictedShip.vy + directionY * BULLET_SPEED,
+
+    ttl: BULLET_LIFETIME,
+    createdAt: now,
+  });
+}
+
+function sendNetworkInput(dt) {
+  if (!playerId || !gameSocket.isJoined) {
+    return;
+  }
+
+  inputAccumulator += dt;
+
+  // Одна команда на один крок симуляції (30 Гц)
+  while (inputAccumulator >= NETWORK_INPUT_DT) {
+    inputAccumulator -= NETWORK_INPUT_DT;
+
+    inputSequence += 1;
+
+    const command = {
+      type: 'input',
+      seq: inputSequence,
+
+      thrust:
+        input.isDown('w') ||
+        input.isDown('arrowup'),
+
+      backward:
+        input.isDown('s') ||
+        input.isDown('arrowdown'),
+
+      left:
+        input.isDown('a') ||
+        input.isDown('arrowleft'),
+
+      right:
+        input.isDown('d') ||
+        input.isDown('arrowright'),
+
+      fire: input.isDown(' '),
+    };
+
+    // Надсилаємо команду серверу
+    gameSocket.send(command);
+
+    if (command.fire && predictedShip) {
+      predictBullet();
+    }
+
+    if (predictedShip && !serverPlayers.find((ship) => ship.id === playerId)?.destroyed) {
+      // Зберігаємо команду до підтвердження
+      pendingInputs.push(command);
+
+      // Передбачаємо рух тими самими формулами,
+      // які використовує сервер
+      integrateNetworkShip(
+        predictedShip,
+        command,
+        FIXED_DT,
+      );
+    }
+  }
+}
+
+function updatePredictedBullets(dt) {
+  for (const bullet of predictedBullets) {
+    bullet.x += bullet.vx * dt;
+    bullet.y += bullet.vy * dt;
+    bullet.ttl -= dt;
+  }
+
+  predictedBullets = predictedBullets.filter(
+    (bullet) => bullet.ttl > 0,
+  );
+}
+
 // Оновлення ігрової фізики
 function update(dt) {
+  sendNetworkInput(dt);
+  updateAsteroidExplosions(dt);
+
+  if (playerId) {
+    updatePredictedBullets(dt);
+
+    const smoothing = Math.exp(-CORRECTION_SPEED * dt);
+
+    correctionX *= smoothing;
+    correctionY *= smoothing;
+
+    if (Math.abs(correctionX) < 0.01) {
+      correctionX = 0;
+    }
+
+    if (Math.abs(correctionY) < 0.01) {
+      correctionY = 0;
+    }
+
+    input.endStep();
+    return;
+  }
+
   // Якщо танк знищений, чекаємо на відродження
   if (tank.dead) {
     respawnTimer += dt;
@@ -344,17 +750,24 @@ function update(dt) {
     angle: tank.angle,
   };
 
-  tank.controls = controls;
+  tank.controls = playerId
+  ? {
+      forward: false,
+      backward: false,
+      left: false,
+      right: false,
+    }
+  : controls;
 
-  // Постріл
-  if (input.justPressed(' ')) {
+  // Локальна стрільба працює лише без серверного підключення.
+  // У мережевому режимі команда fire надсилається серверу.
+  if (!playerId && input.justPressed(' ')) {
     const bullet = tank.fire();
 
     bullet.homing = true;
 
     world.spawn(bullet);
 
-    // Звукова подія пострілу
     emitGameEvent('fired');
   }
 
@@ -442,13 +855,22 @@ function render(alpha, stats) {
 
   drawArena();
   drawAsteroids();
+  drawAsteroidExplosions();
   drawPickups();
 
-  if (!tank.dead) {
+  if (playerId && serverPlayers.length > 0) {
+    drawServerPlayers();
+  } else if (!tank.dead) {
     drawTank(renderTank);
   }
 
-  drawBullets();
+  if (playerId) {
+    drawServerBullets();
+    drawPredictedBullets();
+  } else {
+    drawBullets();
+  }
+
   drawParticles();
   drawHUD(ctx, stats);
 
@@ -460,16 +882,14 @@ function render(alpha, stats) {
   ctx.textAlign = 'right';
 
   ctx.fillText(
-    `Score: ${world.score}`,
+    playerId ? 'Score: --' : `Score: ${world.score}`,
     WIDTH - 20,
     30,
   );
 
-  ctx.fillText(
-    `HP: ${tank.hp}`,
-    WIDTH - 20,
-    55,
-  );
+  const localServerPlayer = serverPlayers.find((ship) => ship.id === playerId);
+  const displayedHp = playerId ? (localServerPlayer?.hp ?? '--') : tank.hp;
+  ctx.fillText(`HP: ${displayedHp}`, WIDTH - 20, 55);
 
   // Відображення гравця та кімнати
   if (selectedRoom) {
@@ -490,7 +910,7 @@ function render(alpha, stats) {
   }
 
   // Повідомлення про відродження
-  if (tank.dead) {
+  if ((playerId && localServerPlayer?.destroyed) || (!playerId && tank.dead)) {
     ctx.textAlign = 'center';
     ctx.font = 'bold 24px Arial';
     ctx.fillStyle = '#facc15';
@@ -503,7 +923,28 @@ function render(alpha, stats) {
   }
 
   ctx.restore();
+
+  gameSocket.updatePing();
+
+  const networkStats = gameSocket.getNetworkStats();
+
+  netgraph.update({
+    protocol:
+      new URLSearchParams(window.location.search).get('protocol') ===
+      'binary'
+        ? 'Binary'
+        : 'JSON',
+    rtt: networkStats.rtt,
+    snapshotAge: networkStats.snapshotAge,
+    bytesPerSecond: networkStats.bytesPerSecond,
+    inputQueue: pendingInputs.length,
+    correction: Math.hypot(correctionX, correctionY),
+    lag: networkStats.lag,
+    jitter: networkStats.jitter,
+    loss: networkStats.loss,
+  });
 }
+
 
 // Ігровий цикл
 const loop = createLoop({
@@ -513,7 +954,7 @@ const loop = createLoop({
 
 
  // Вхід гравця до вибраної кімнати
-lobby.addEventListener('joined', (event) => {
+  lobby.addEventListener('joined', (event) => {
   playerName = event.detail.playerName;
   selectedRoom = event.detail.room;
 
@@ -532,9 +973,113 @@ lobby.addEventListener('joined', (event) => {
 gameSocket.addEventListener('message', (event) => {
   const message = event.detail;
 
+if (message.type === 'snapshot') {
+  const snapshot = message;
+
+  setTimeout(() => {
+    // Не застосовуємо старі знімки після виходу з кімнати
+    if (!playerId) {
+      return;
+    }
+
+    if (snapshot.tick <= latestServerTick) {
+      return;
+    }
+
+    serverPlayers = snapshot.players;
+    serverBullets = snapshot.bullets ?? [];
+    const nextAsteroids = snapshot.asteroids ?? [];
+
+    for (const oldAsteroid of serverAsteroids) {
+      const stillExists = nextAsteroids.some(
+        (asteroid) => asteroid.id === oldAsteroid.id,
+      );
+
+      if (!stillExists) {
+        createAsteroidExplosion(
+          oldAsteroid.x,
+          oldAsteroid.y,
+        );
+      }
+    }
+
+    serverAsteroids = nextAsteroids;
+
+    // Звук тільки при фактичному зменшенні HP, а не кожного кадру.
+    for (const ship of serverPlayers) {
+      const previous = previousPlayerStates.get(ship.id);
+      if (previous && ship.hp < previous.hp) {
+        emitGameEvent(ship.destroyed && !previous.destroyed ? 'exploded' : 'hit');
+      }
+      if (ship.id === playerId && previous?.destroyed && !ship.destroyed) {
+        // Після відродження не відтворюємо старі непідтверджені команди.
+        pendingInputs = [];
+        correctionX = 0;
+        correctionY = 0;
+        predictedBullets = [];
+      }
+      previousPlayerStates.set(ship.id, { hp: ship.hp, destroyed: ship.destroyed });
+    }
+    snapshotHistory.push({
+      time: performance.now(),
+      players: snapshot.players.map((player) => ({ ...player })),
+    });
+
+    if (snapshotHistory.length > MAX_SNAPSHOT_HISTORY) {
+      snapshotHistory.shift();
+    }
+
+    latestServerTick = snapshot.tick;
+
+    const localServerShip = serverPlayers.find(
+      (ship) => ship.id === playerId,
+    );
+
+    if (localServerShip) {
+      if (localServerShip.destroyed) {
+        predictedShip = { ...localServerShip };
+        pendingInputs = [];
+        correctionX = 0;
+        correctionY = 0;
+        predictedBullets = [];
+      } else {
+        reconcileLocalShip(localServerShip);
+      }
+    }
+
+    if (snapshot.tick % 60 === 0) {
+      console.log(
+        'DELAYED SNAPSHOT:',
+        snapshot.tick,
+        'Players:',
+        serverPlayers.length,
+        'Delay:',
+        NETWORK_DELAY_MS,
+        'ms',
+      );
+    }
+  }, NETWORK_DELAY_MS);
+
+  return;
+}
+
   if (message.type === 'joined') {
     playerId = message.playerId;
     selectedRoom = message.room;
+    inputSequence = 0;
+    inputAccumulator = 0;
+    predictedShip = null;
+    latestServerTick = -1;
+    pendingInputs = [];
+    correctionX = 0;
+    correctionY = 0;
+    snapshotHistory.length = 0;
+    previousPlayerStates.clear();
+    serverPlayers = [];
+    serverBullets = [];
+    serverAsteroids = [];
+    predictedBullets = [];
+    lastPredictedFireTime = -Infinity;
 
     console.log('Successfully joined room!');
     console.log('Player ID:', playerId);
