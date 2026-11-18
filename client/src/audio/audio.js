@@ -1,3 +1,4 @@
+
 import { gameEvents } from '../events/bus.ts';
 
 export function createAudioSystem(audioContext, assets) {
@@ -7,10 +8,25 @@ export function createAudioSystem(audioContext, assets) {
     exploded: 'explosion',
   };
 
-  function playSound(id) {
+  async function playSound(id) {
     const buffer = assets.get(id);
 
-    if (!buffer || audioContext.state !== 'running') {
+    if (!buffer) {
+      console.warn(`Sound not found: ${id}`);
+      return;
+    }
+
+    if (audioContext.state === 'suspended') {
+      try {
+        await audioContext.resume();
+      } catch (error) {
+        console.warn('Audio resume failed:', error);
+        return;
+      }
+    }
+
+    if (audioContext.state !== 'running') {
+      console.warn('AudioContext state:', audioContext.state);
       return;
     }
 
@@ -28,7 +44,7 @@ export function createAudioSystem(audioContext, assets) {
 
   for (const [eventName, soundId] of Object.entries(soundIds)) {
     gameEvents.addEventListener(eventName, () => {
-      playSound(soundId);
+      void playSound(soundId);
     });
   }
 

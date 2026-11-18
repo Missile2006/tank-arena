@@ -1,17 +1,17 @@
 import './style.css';
 
 import { createChatUI } from './net/chat.js';
-import { GameSocket } from './net/socket.js';
+import { GameSocket } from './net/socket.ts';
 import { createNetgraph } from './net/netgraph.js';
 //import { runEventLoopExperiments } from './experiments/event-loop.js';
-import { createInput } from './input.ts';
+import { createInput } from './input.js';
 import { Ship } from './sim/ship.js';
 import { World } from './sim/world.js';
 import { Asteroid } from './sim/asteroid.js';
-import { Vector2 } from './sim/vector.ts';
-import { createLoop } from './loop.ts';
+import { Vector2 } from './sim/vector.js';
+import { createLoop } from './loop.js';
 import { drawHUD } from './render/hud.js';
-import { setupCanvas } from './render/canvas.ts';
+import { setupCanvas } from './render/canvas.js';
 import { applyHoming } from './sim/homing.js';
 import { createHealthPickup } from './sim/pickup.js';
 import { fetchJson, loadAll } from './assets/loader.js';
