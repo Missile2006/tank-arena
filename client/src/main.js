@@ -14,10 +14,10 @@ import { drawHUD } from './render/hud.js';
 import { setupCanvas } from './render/canvas.js';
 import { applyHoming } from './sim/homing.js';
 import { createHealthPickup } from './sim/pickup.js';
-import { fetchJson, loadAll } from './assets/loader.js';
+import { fetchJson, loadAll } from './assets/loader.ts';
 import { drawLoading } from './render/loading.js';
-import { emitGameEvent, gameEvents } from './events/bus.ts';
-import { createAudioSystem } from './audio/audio.js';
+import { emitGameEvent, gameEvents } from './events/bus.js';
+import { createAudioSystem } from './audio/audio.ts';
 import { Lobby } from './lobby/lobby.js';
 import { createLobbyUI } from './lobby/lobby-ui.js';
 import {
