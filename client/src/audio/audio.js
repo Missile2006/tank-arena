@@ -1,4 +1,4 @@
-import { gameEvents } from '../events/bus.js';
+import { gameEvents } from '../events/bus.ts';
 
 export function createAudioSystem(audioContext, assets) {
   const soundIds = {

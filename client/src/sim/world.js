@@ -1,6 +1,6 @@
 
 import { handleCollisions } from './collision.js';
-import { emitGameEvent } from '../events/bus.js';
+import { emitGameEvent } from '../events/bus.ts';
 
 export class World {
   constructor() {

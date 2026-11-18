@@ -1,5 +1,5 @@
 
-import { Vector2 } from './vector.js';
+import { Vector2 } from './vector.ts';
 
 // Додає об'єкту поведінку самонаведення
 export function applyHoming(entity, target, dt, strength = 3) {

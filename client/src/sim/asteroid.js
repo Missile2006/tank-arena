@@ -1,6 +1,6 @@
 
-import { Entity } from './entity.js';
-import { Vector2 } from './vector.js';
+import { Entity } from './entity.ts';
+import { Vector2 } from './vector.ts';
 
 export class Asteroid extends Entity {
   constructor({

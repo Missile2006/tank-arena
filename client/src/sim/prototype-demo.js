@@ -1,5 +1,5 @@
 
-import { Entity } from './entity.js';
+import { Entity } from './entity.ts';
 import { Ship } from './ship.js';
 
 export function demonstratePrototypes() {

@@ -1,6 +1,6 @@
 
-import { Entity } from './entity.js';
-import { Vector2 } from './vector.js';
+import { Entity } from './entity.ts';
+import { Vector2 } from './vector.ts';
 import { Bullet } from './bullet.js';
 
 export function integrate(ship, input, dt) {
