@@ -1,6 +1,7 @@
 
 import { randomUUID } from 'node:crypto';
 import { WebSocket, WebSocketServer } from 'ws';
+import { parseClientMessage } from '../../shared/messages.ts';
 
 const MAX_MESSAGE_BYTES = 4096;
 const MAX_MESSAGES_PER_SECOND = 60;
@@ -87,33 +88,27 @@ export function setupWebSocket(server, roomManager, eventLogger) {
         return;
       }
 
-      let message;
-
+      // JSON.parse returns untrusted data. Zod validates the complete shape.
+      let rawMessage;
       try {
-        message = JSON.parse(raw.toString('utf8'));
-      } catch {
+        rawMessage = JSON.parse(raw.toString('utf8'));
+      } catch (error) {
+        console.warn('Invalid JSON received:', error instanceof Error ? error.message : String(error));
         socket.close(1007, 'Invalid JSON');
         return;
       }
 
-      if (
-        !message ||
-        typeof message !== 'object' ||
-        Array.isArray(message) ||
-        typeof message.type !== 'string'
-      ) {
+      let message;
+      try {
+        message = parseClientMessage(rawMessage);
+      } catch (error) {
+        console.warn('Invalid client message:', error instanceof Error ? error.message : String(error));
         socket.close(1008, 'Invalid message format');
         return;
       }
+
       if (message.type === 'ping') {
         if (!joined) {
-          return;
-        }
-
-        if (
-          !Number.isSafeInteger(message.id) ||
-          message.id < 0
-        ) {
           return;
         }
 
@@ -128,11 +123,7 @@ export function setupWebSocket(server, roomManager, eventLogger) {
       // Вхід у кімнату
       if (message.type === 'join') {
         if (
-          joined ||
-          typeof message.roomId !== 'string' ||
-          typeof message.playerName !== 'string' ||
-          message.playerName.trim().length === 0 ||
-          message.playerName.length > 30
+          joined
         ) {
           socket.close(1008, 'Invalid join');
           return;
@@ -199,10 +190,7 @@ export function setupWebSocket(server, roomManager, eventLogger) {
       if (message.type === 'chat') {
         if (
           !joined ||
-          !currentRoom ||
-          typeof message.text !== 'string' ||
-          message.text.trim().length === 0 ||
-          message.text.length > 500
+          !currentRoom
         ) {
           socket.close(1008, 'Invalid chat message');
           return;
@@ -233,14 +221,7 @@ export function setupWebSocket(server, roomManager, eventLogger) {
       if (message.type === 'input') {
         if (
           !joined ||
-          !currentRoom ||
-          !Number.isSafeInteger(message.seq) ||
-          message.seq < 1 ||
-          typeof message.thrust !== 'boolean' ||
-          typeof message.backward !== 'boolean' ||
-          typeof message.left !== 'boolean' ||
-          typeof message.right !== 'boolean' ||
-          typeof message.fire !== 'boolean'
+          !currentRoom
         ) {
           socket.close(1008, 'Invalid input');
           return;

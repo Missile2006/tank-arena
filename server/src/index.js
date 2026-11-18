@@ -4,11 +4,11 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { pipeline } from 'node:stream/promises';
-import { config } from './config.js';
+import { config } from './config.ts';
 import { RoomManager } from './room-manager.js';
 import { setupWebSocket } from './websocket.js';
 import { createEventLogger } from './logger.js';
-import { createGameLoop } from './game-loop.js';
+import { createGameLoop } from './game-loop.ts';
 import { encodeSnapshot } from 'tank-arena-shared/protocol';
 
 const serverDir = path.dirname(fileURLToPath(import.meta.url));
