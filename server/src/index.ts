@@ -38,8 +38,19 @@ const clientDistDir = path.resolve(
 const roomManager = new RoomManager();
 const eventLogger = createEventLogger(config.logDir);
 
+const tickDurations: number[] = [];
+
+function percentile(values: number[], p: number): number {
+  if (values.length === 0) return 0;
+
+  const sorted = [...values].sort((a, b) => a - b);
+  const index = Math.ceil((p / 100) * sorted.length) - 1;
+
+  return sorted[Math.max(0, index)] ?? 0;
+}
 
 const gameLoop = createGameLoop(({ tick, dt }) => {
+  const tickStart = performance.now();
   for (const room of roomManager.rooms.values()) {
     if (!room.simulation || room.playerCount === 0) {
       continue;
@@ -75,8 +86,26 @@ const gameLoop = createGameLoop(({ tick, dt }) => {
     }
   }
 
-  if (tick > 0 && tick % 300 === 0) {
-    console.log(`Game loop tick: ${tick}`);
+    const tickDuration = performance.now() - tickStart;
+  tickDurations.push(tickDuration);
+
+  if (tickDurations.length >= 300) {
+    const p50 = percentile(tickDurations, 50);
+    const p95 = percentile(tickDurations, 95);
+    const p99 = percentile(tickDurations, 99);
+    const max = Math.max(...tickDurations);
+
+    console.log('\n=== SERVER TICK PERFORMANCE ===');
+    console.table({
+      samples: tickDurations.length,
+      p50Ms: p50.toFixed(2),
+      p95Ms: p95.toFixed(2),
+      p99Ms: p99.toFixed(2),
+      maxMs: max.toFixed(2),
+      ticksOver33Ms: tickDurations.filter(ms => ms > 33).length,
+    });
+
+    tickDurations.length = 0;
   }
 });
 

@@ -30,3 +30,17 @@ dist-ssr
 
 # Visual Studio
 .vs/
+
+# Test artifacts
+coverage/
+test-results/
+playwright-report/
+
+# Temporary lab review files
+BLOCK4-INSTRUCTIONS.txt
+README-block3.txt
+README-load.txt
+lab07-*-review.txt
+
+# Local load-test measurements
+load-results/
