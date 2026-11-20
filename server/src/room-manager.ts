@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto';
+﻿import { randomUUID } from 'node:crypto';
 import { Room } from './room.js';
 
 export interface CreateRoomOptions {
@@ -34,3 +34,5 @@ export class RoomManager {
   getRoom(id: string): Room | undefined { return this.rooms.get(id); }
   listRooms() { return [...this.rooms.values()].map((room) => room.toJSON()); }
 }
+
+

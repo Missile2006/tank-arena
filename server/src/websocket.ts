@@ -1,4 +1,4 @@
-
+﻿
 import { randomUUID } from 'node:crypto';
 import { WebSocket, WebSocketServer } from 'ws';
 import type { Server } from 'node:http';
@@ -20,7 +20,7 @@ function sendJson(socket: WebSocket, message: unknown): void {
     return;
   }
 
-  // Не накопичуємо повідомлення у повільного клієнта
+  // РќРµ РЅР°РєРѕРїРёС‡СѓС”РјРѕ РїРѕРІС–РґРѕРјР»РµРЅРЅСЏ Сѓ РїРѕРІС–Р»СЊРЅРѕРіРѕ РєР»С–С”РЅС‚Р°
   if (socket.bufferedAmount > MAX_BUFFERED_BYTES) {
     return;
   }
@@ -52,19 +52,19 @@ export function setupWebSocket(server: Server, roomManager: RoomManager, eventLo
     let messagesThisSecond = 0;
     let missedPongs = 0;
 
-    // Гравець повинен увійти протягом 5 секунд
+    // Р“СЂР°РІРµС†СЊ РїРѕРІРёРЅРµРЅ СѓРІС–Р№С‚Рё РїСЂРѕС‚СЏРіРѕРј 5 СЃРµРєСѓРЅРґ
     const joinTimeout = setTimeout(() => {
       if (!joined) {
         socket.close(1008, 'Join timeout');
       }
     }, 5000);
 
-    // Обмеження кількості повідомлень
+    // РћР±РјРµР¶РµРЅРЅСЏ РєС–Р»СЊРєРѕСЃС‚С– РїРѕРІС–РґРѕРјР»РµРЅСЊ
     const rateTimer = setInterval(() => {
       messagesThisSecond = 0;
     }, 1000);
 
-    // Перевірка активності клієнта
+    // РџРµСЂРµРІС–СЂРєР° Р°РєС‚РёРІРЅРѕСЃС‚С– РєР»С–С”РЅС‚Р°
     const pingTimer = setInterval(() => {
       if (socket.readyState !== WebSocket.OPEN) {
         return;
@@ -133,7 +133,7 @@ export function setupWebSocket(server: Server, roomManager: RoomManager, eventLo
         return;
       }
 
-      // Вхід у кімнату
+      // Р’С…С–Рґ Сѓ РєС–РјРЅР°С‚Сѓ
       if (message.type === 'join') {
         if (
           joined
@@ -156,7 +156,7 @@ export function setupWebSocket(server: Server, roomManager: RoomManager, eventLo
 
         const playerName = message.playerName.trim();
 
-        // Зберігаємо WebSocket разом із гравцем
+        // Р—Р±РµСЂС–РіР°С”РјРѕ WebSocket СЂР°Р·РѕРј С–Р· РіСЂР°РІС†РµРј
         room.join(playerId, playerName);
 
         const player = room.players.get(playerId);
@@ -166,7 +166,7 @@ export function setupWebSocket(server: Server, roomManager: RoomManager, eventLo
         currentRoom = room;
         joined = true;
 
-        // Режим передавання ігрових snapshot
+        // Р РµР¶РёРј РїРµСЂРµРґР°РІР°РЅРЅСЏ С–РіСЂРѕРІРёС… snapshot
         socket.protocolMode =
           message.protocolMode === 'binary' ? 'binary' : 'json';
 
@@ -200,7 +200,7 @@ export function setupWebSocket(server: Server, roomManager: RoomManager, eventLo
         return;
       }
 
-      // Чат
+      // Р§Р°С‚
       if (message.type === 'chat') {
         if (
           !joined ||
@@ -232,7 +232,7 @@ export function setupWebSocket(server: Server, roomManager: RoomManager, eventLo
       }
 
 
-      // Команди керування кораблем
+      // РљРѕРјР°РЅРґРё РєРµСЂСѓРІР°РЅРЅСЏ РєРѕСЂР°Р±Р»РµРј
       if (message.type === 'input') {
         if (
           !joined ||
@@ -308,3 +308,5 @@ export function setupWebSocket(server: Server, roomManager: RoomManager, eventLo
 
   return wss;
 }
+
+
