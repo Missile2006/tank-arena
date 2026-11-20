@@ -1,5 +1,18 @@
 
+export interface NetworkSimulationStats {
+  lag: number;
+  jitter: number;
+  loss: number;
+  received: number;
+  dropped: number;
+}
+
 export class NetworkSimulator {
+  lag: number;
+  jitter: number;
+  loss: number;
+  received: number;
+  dropped: number;
   constructor() {
     const params = new URLSearchParams(window.location.search);
 
@@ -22,7 +35,7 @@ export class NetworkSimulator {
     this.dropped = 0;
   }
 
-  receive(callback) {
+  receive(callback: () => void): void {
     this.received++;
 
     // Випадково пропускаємо повідомлення
@@ -43,7 +56,7 @@ export class NetworkSimulator {
     setTimeout(callback, delay);
   }
 
-  getStats() {
+  getStats(): NetworkSimulationStats {
     return {
       lag: this.lag,
       jitter: this.jitter,

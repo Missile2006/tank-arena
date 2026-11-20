@@ -1,8 +1,8 @@
-import './style.css';
+﻿import './style.css';
 
-import { createChatUI } from './net/chat.js';
+import { createChatUI } from './net/chat.ts';
 import { GameSocket } from './net/socket.ts';
-import { createNetgraph } from './net/netgraph.js';
+import { createNetgraph } from './net/netgraph.ts';
 //import { runEventLoopExperiments } from './experiments/event-loop.js';
 import { createInput } from './input.js';
 import { Ship } from './sim/ship.ts';
@@ -10,23 +10,23 @@ import { World } from './sim/world.ts';
 import { Asteroid } from './sim/asteroid.ts';
 import { Vector2 } from './sim/vector.js';
 import { createLoop } from './loop.js';
-import { drawHUD } from './render/hud.js';
+import { drawHUD } from './render/hud.ts';
 import { setupCanvas } from './render/canvas.js';
 import { applyHoming } from './sim/homing.js';
 import { createHealthPickup } from './sim/pickup.ts';
 import { fetchJson, loadAll } from './assets/loader.ts';
-import { drawLoading } from './render/loading.js';
+import { drawLoading } from './render/loading.ts';
 import { emitGameEvent, gameEvents } from './events/bus.js';
 import { createAudioSystem } from './audio/audio.ts';
 import { Lobby } from './lobby/lobby.js';
-import { createLobbyUI } from './lobby/lobby-ui.js';
+import { createLobbyUI } from './lobby/lobby-ui.ts';
 import {
   createShip,
   integrate as integrateNetworkShip,
   FIXED_DT,
 } from 'tank-arena-shared/simulation';
 
-// Налаштування ігрового поля
+// РќР°Р»Р°С€С‚СѓРІР°РЅРЅСЏ С–РіСЂРѕРІРѕРіРѕ РїРѕР»СЏ
 const canvas = document.getElementById('gameCanvas');
 
 const WIDTH = 900;
@@ -34,16 +34,16 @@ const HEIGHT = 550;
 
 const { ctx } = setupCanvas(canvas, WIDTH, HEIGHT);
 
-// Завантажені ресурси та аудіосистема
+// Р—Р°РІР°РЅС‚Р°Р¶РµРЅС– СЂРµСЃСѓСЂСЃРё С‚Р° Р°СѓРґС–РѕСЃРёСЃС‚РµРјР°
 let gameAssets = new Map();
 let audioContext = null;
 let audioSystem = null;
 
-// Лобі
+// Р›РѕР±С–
 const lobby = new Lobby();
 const lobbyUI = createLobbyUI(lobby);
 
-// WebSocket-з'єднання із сервером
+// WebSocket-Р·'С”РґРЅР°РЅРЅСЏ С–Р· СЃРµСЂРІРµСЂРѕРј
 const gameSocket = new GameSocket('/ws');
 const netgraph = createNetgraph();
 const chatUI = createChatUI(gameSocket);
@@ -52,18 +52,18 @@ let selectedRoom = null;
 let playerName = '';
 let playerId = null;
 
-// Лабораторна №5: нумерація команд керування
+// Р›Р°Р±РѕСЂР°С‚РѕСЂРЅР° в„–5: РЅСѓРјРµСЂР°С†С–СЏ РєРѕРјР°РЅРґ РєРµСЂСѓРІР°РЅРЅСЏ
 let inputSequence = 0;
 let inputAccumulator = 0;
 
 const NETWORK_INPUT_DT = 1 / 30;
 
-// Останній стан кораблів, отриманий від сервера
+// РћСЃС‚Р°РЅРЅС–Р№ СЃС‚Р°РЅ РєРѕСЂР°Р±Р»С–РІ, РѕС‚СЂРёРјР°РЅРёР№ РІС–Рґ СЃРµСЂРІРµСЂР°
 let serverPlayers = [];
 let serverBullets = [];
 let serverAsteroids = [];
 let asteroidExplosions = [];
-// Останній підтверджений сервером стан здоров’я кожного танка
+// РћСЃС‚Р°РЅРЅС–Р№ РїС–РґС‚РІРµСЂРґР¶РµРЅРёР№ СЃРµСЂРІРµСЂРѕРј СЃС‚Р°РЅ Р·РґРѕСЂРѕРІвЂ™СЏ РєРѕР¶РЅРѕРіРѕ С‚Р°РЅРєР°
 const previousPlayerStates = new Map();
 
 let predictedBullets = [];
@@ -83,10 +83,10 @@ let correctionX = 0;
 let correctionY = 0;
 
 const CORRECTION_SPEED = 12;
-// Лабораторна №5: штучна затримка серверних даних
+// Р›Р°Р±РѕСЂР°С‚РѕСЂРЅР° в„–5: С€С‚СѓС‡РЅР° Р·Р°С‚СЂРёРјРєР° СЃРµСЂРІРµСЂРЅРёС… РґР°РЅРёС…
 const NETWORK_DELAY_MS = 0;
 
-// Малювання спрайтів
+// РњР°Р»СЋРІР°РЅРЅСЏ СЃРїСЂР°Р№С‚С–РІ
 function drawSprite(id, x, y, width, height, frame = 0, angle = 0) {
   const image = gameAssets.get(id);
 
@@ -121,38 +121,38 @@ function drawSprite(id, x, y, width, height, frame = 0, angle = 0) {
   return true;
 }
 
-// Створення ігрового світу
+// РЎС‚РІРѕСЂРµРЅРЅСЏ С–РіСЂРѕРІРѕРіРѕ СЃРІС–С‚Сѓ
 const input = createInput();
 const world = new World();
 
 let tank = world.spawn(new Ship(WIDTH / 2, HEIGHT / 2));
 let respawnTimer = 0;
 
-// Астероїди створюватимуться після вибору кімнати
+// РђСЃС‚РµСЂРѕС—РґРё СЃС‚РІРѕСЂСЋРІР°С‚РёРјСѓС‚СЊСЃСЏ РїС–СЃР»СЏ РІРёР±РѕСЂСѓ РєС–РјРЅР°С‚Рё
 let homingAsteroid = null;
 
-// Аптечка для відновлення здоров'я
+// РђРїС‚РµС‡РєР° РґР»СЏ РІС–РґРЅРѕРІР»РµРЅРЅСЏ Р·РґРѕСЂРѕРІ'СЏ
 world.spawn(
   createHealthPickup(new Vector2(450, 350), 25),
 );
 
-// Попередня позиція танка для інтерполяції
+// РџРѕРїРµСЂРµРґРЅСЏ РїРѕР·РёС†С–СЏ С‚Р°РЅРєР° РґР»СЏ С–РЅС‚РµСЂРїРѕР»СЏС†С–С—
 let previousTank = {
   x: tank.x,
   y: tank.y,
   angle: tank.angle,
 };
 
-// Створення астероїдів для вибраної кімнати
+// РЎС‚РІРѕСЂРµРЅРЅСЏ Р°СЃС‚РµСЂРѕС—РґС–РІ РґР»СЏ РІРёР±СЂР°РЅРѕС— РєС–РјРЅР°С‚Рё
 function spawnRoomAsteroids(count) {
-  // Видаляємо астероїди попередньої кімнати
+  // Р’РёРґР°Р»СЏС”РјРѕ Р°СЃС‚РµСЂРѕС—РґРё РїРѕРїРµСЂРµРґРЅСЊРѕС— РєС–РјРЅР°С‚Рё
   for (const asteroid of [...world.ofKind('asteroid')]) {
     world.despawn(asteroid);
   }
 
   world.sweep();
 
-  // Розміщуємо астероїди навколо центру арени
+  // Р РѕР·РјС–С‰СѓС”РјРѕ Р°СЃС‚РµСЂРѕС—РґРё РЅР°РІРєРѕР»Рѕ С†РµРЅС‚СЂСѓ Р°СЂРµРЅРё
   for (let i = 0; i < count; i++) {
     const angle = (i / count) * Math.PI * 2;
 
@@ -167,13 +167,13 @@ function spawnRoomAsteroids(count) {
     );
   }
 
-  // Перший астероїд буде переслідувати танк
+  // РџРµСЂС€РёР№ Р°СЃС‚РµСЂРѕС—Рґ Р±СѓРґРµ РїРµСЂРµСЃР»С–РґСѓРІР°С‚Рё С‚Р°РЅРє
   homingAsteroid = [...world.ofKind('asteroid')][0] ?? null;
 
   console.log(`Spawned ${count} asteroids`);
 }
 
-// Малювання ігрового поля
+// РњР°Р»СЋРІР°РЅРЅСЏ С–РіСЂРѕРІРѕРіРѕ РїРѕР»СЏ
 function drawArena() {
   ctx.clearRect(0, 0, WIDTH, HEIGHT);
 
@@ -253,7 +253,7 @@ function getInterpolatedPlayers() {
   });
 }
 
-// Шкала HP прив'язана до позиції, на якій танк намальований.
+// РЁРєР°Р»Р° HP РїСЂРёРІ'СЏР·Р°РЅР° РґРѕ РїРѕР·РёС†С–С—, РЅР° СЏРєС–Р№ С‚Р°РЅРє РЅР°РјР°Р»СЊРѕРІР°РЅРёР№.
 function drawHealthBar(x, y, hp = 100) {
   const health = Math.max(0, Math.min(100, Number(hp) || 0));
   const width = 52;
@@ -283,7 +283,7 @@ function drawServerPlayers() {
     const isLocalPlayer = player.id === playerId;
     const authoritativePlayer = serverPlayers.find((item) => item.id === player.id) ?? player;
 
-    // Знищений танк не повинен залишатися на арені.
+    // Р—РЅРёС‰РµРЅРёР№ С‚Р°РЅРє РЅРµ РїРѕРІРёРЅРµРЅ Р·Р°Р»РёС€Р°С‚РёСЃСЏ РЅР° Р°СЂРµРЅС–.
     if (authoritativePlayer.destroyed) {
       continue;
     }
@@ -304,9 +304,9 @@ function drawServerPlayers() {
   }
 }
 
-// Малювання танка
+// РњР°Р»СЋРІР°РЅРЅСЏ С‚Р°РЅРєР°
 function drawTank(renderTank) {
-  // Під час невразливості танк блимає
+  // РџС–Рґ С‡Р°СЃ РЅРµРІСЂР°Р·Р»РёРІРѕСЃС‚С– С‚Р°РЅРє Р±Р»РёРјР°С”
   if (tank.invulnerable) {
     const blink = Math.floor(tank.animationTime * 10) % 2;
 
@@ -338,8 +338,8 @@ function drawServerBullets() {
       0,
     );
 
-    // Якщо спрайт кулі не завантажився,
-    // малюємо невелике помаранчеве коло
+    // РЇРєС‰Рѕ СЃРїСЂР°Р№С‚ РєСѓР»С– РЅРµ Р·Р°РІР°РЅС‚Р°Р¶РёРІСЃСЏ,
+    // РјР°Р»СЋС”РјРѕ РЅРµРІРµР»РёРєРµ РїРѕРјР°СЂР°РЅС‡РµРІРµ РєРѕР»Рѕ
     if (!drawn) {
       ctx.save();
 
@@ -374,7 +374,7 @@ function drawPredictedBullets() {
     }
   }
 }
-// Малювання куль
+// РњР°Р»СЋРІР°РЅРЅСЏ РєСѓР»СЊ
 function drawBullets() {
   for (const bullet of world.ofKind('bullet')) {
     drawSprite(
@@ -444,7 +444,7 @@ function drawAsteroidExplosions() {
   ctx.restore();
 }
 
-// Малювання астероїдів
+// РњР°Р»СЋРІР°РЅРЅСЏ Р°СЃС‚РµСЂРѕС—РґС–РІ
 function drawAsteroids() {
   for (const asteroid of serverAsteroids) {
     drawSprite(
@@ -475,7 +475,7 @@ function drawAsteroids() {
   }
 }
 
-// Малювання частинок вибуху
+// РњР°Р»СЋРІР°РЅРЅСЏ С‡Р°СЃС‚РёРЅРѕРє РІРёР±СѓС…Сѓ
 function drawParticles() {
   for (const particle of world.ofKind('particle')) {
     ctx.save();
@@ -501,7 +501,7 @@ function drawParticles() {
   }
 }
 
-// Малювання аптечок
+// РњР°Р»СЋРІР°РЅРЅСЏ Р°РїС‚РµС‡РѕРє
 function drawPickups() {
   for (const pickup of world.ofKind('pickup')) {
     const { x, y } = pickup.position;
@@ -525,7 +525,7 @@ function drawPickups() {
   }
 }
 
-// Пошук найближчого астероїда
+// РџРѕС€СѓРє РЅР°Р№Р±Р»РёР¶С‡РѕРіРѕ Р°СЃС‚РµСЂРѕС—РґР°
 function findNearestAsteroid(position) {
   let nearest = null;
   let minDistance = Infinity;
@@ -575,7 +575,7 @@ function reconcileLocalShip(serverShip) {
     );
   }
 
-  // Зберігаємо різницю між старим і новим положенням
+  // Р—Р±РµСЂС–РіР°С”РјРѕ СЂС–Р·РЅРёС†СЋ РјС–Р¶ СЃС‚Р°СЂРёРј С– РЅРѕРІРёРј РїРѕР»РѕР¶РµРЅРЅСЏРј
   correctionX += oldX - predictedShip.x;
   correctionY += oldY - predictedShip.y;
 }
@@ -613,7 +613,7 @@ function sendNetworkInput(dt) {
 
   inputAccumulator += dt;
 
-  // Одна команда на один крок симуляції (30 Гц)
+  // РћРґРЅР° РєРѕРјР°РЅРґР° РЅР° РѕРґРёРЅ РєСЂРѕРє СЃРёРјСѓР»СЏС†С–С— (30 Р“С†)
   while (inputAccumulator >= NETWORK_INPUT_DT) {
     inputAccumulator -= NETWORK_INPUT_DT;
 
@@ -642,7 +642,7 @@ function sendNetworkInput(dt) {
       fire: input.isDown(' '),
     };
 
-    // Надсилаємо команду серверу
+    // РќР°РґСЃРёР»Р°С”РјРѕ РєРѕРјР°РЅРґСѓ СЃРµСЂРІРµСЂСѓ
     gameSocket.send(command);
 
     if (command.fire && predictedShip) {
@@ -650,11 +650,11 @@ function sendNetworkInput(dt) {
     }
 
     if (predictedShip && !serverPlayers.find((ship) => ship.id === playerId)?.destroyed) {
-      // Зберігаємо команду до підтвердження
+      // Р—Р±РµСЂС–РіР°С”РјРѕ РєРѕРјР°РЅРґСѓ РґРѕ РїС–РґС‚РІРµСЂРґР¶РµРЅРЅСЏ
       pendingInputs.push(command);
 
-      // Передбачаємо рух тими самими формулами,
-      // які використовує сервер
+      // РџРµСЂРµРґР±Р°С‡Р°С”РјРѕ СЂСѓС… С‚РёРјРё СЃР°РјРёРјРё С„РѕСЂРјСѓР»Р°РјРё,
+      // СЏРєС– РІРёРєРѕСЂРёСЃС‚РѕРІСѓС” СЃРµСЂРІРµСЂ
       integrateNetworkShip(
         predictedShip,
         command,
@@ -676,7 +676,7 @@ function updatePredictedBullets(dt) {
   );
 }
 
-// Оновлення ігрової фізики
+// РћРЅРѕРІР»РµРЅРЅСЏ С–РіСЂРѕРІРѕС— С„С–Р·РёРєРё
 function update(dt) {
   sendNetworkInput(dt);
   updateAsteroidExplosions(dt);
@@ -701,7 +701,7 @@ function update(dt) {
     return;
   }
 
-  // Якщо танк знищений, чекаємо на відродження
+  // РЇРєС‰Рѕ С‚Р°РЅРє Р·РЅРёС‰РµРЅРёР№, С‡РµРєР°С”РјРѕ РЅР° РІС–РґСЂРѕРґР¶РµРЅРЅСЏ
   if (tank.dead) {
     respawnTimer += dt;
 
@@ -725,7 +725,7 @@ function update(dt) {
     return;
   }
 
-  // Керування танком
+  // РљРµСЂСѓРІР°РЅРЅСЏ С‚Р°РЅРєРѕРј
   const controls = {
     forward:
       input.isDown('w') ||
@@ -759,8 +759,8 @@ function update(dt) {
     }
   : controls;
 
-  // Локальна стрільба працює лише без серверного підключення.
-  // У мережевому режимі команда fire надсилається серверу.
+  // Р›РѕРєР°Р»СЊРЅР° СЃС‚СЂС–Р»СЊР±Р° РїСЂР°С†СЋС” Р»РёС€Рµ Р±РµР· СЃРµСЂРІРµСЂРЅРѕРіРѕ РїС–РґРєР»СЋС‡РµРЅРЅСЏ.
+  // РЈ РјРµСЂРµР¶РµРІРѕРјСѓ СЂРµР¶РёРјС– РєРѕРјР°РЅРґР° fire РЅР°РґСЃРёР»Р°С”С‚СЊСЃСЏ СЃРµСЂРІРµСЂСѓ.
   if (!playerId && input.justPressed(' ')) {
     const bullet = tank.fire();
 
@@ -772,11 +772,11 @@ function update(dt) {
   }
 
 
-  // Усі астероїди переслідують танк
+  // РЈСЃС– Р°СЃС‚РµСЂРѕС—РґРё РїРµСЂРµСЃР»С–РґСѓСЋС‚СЊ С‚Р°РЅРє
   for (const asteroid of world.ofKind('asteroid')) {
     applyHoming(asteroid, tank, dt, 5);
 
-    // Обмежуємо максимальну швидкість астероїда
+    // РћР±РјРµР¶СѓС”РјРѕ РјР°РєСЃРёРјР°Р»СЊРЅСѓ С€РІРёРґРєС–СЃС‚СЊ Р°СЃС‚РµСЂРѕС—РґР°
     const velocity = asteroid.velocity;
     const currentSpeed = velocity.length();
 
@@ -787,7 +787,7 @@ function update(dt) {
     }
   }
 
-  // Самонаведення куль на найближчий астероїд
+  // РЎР°РјРѕРЅР°РІРµРґРµРЅРЅСЏ РєСѓР»СЊ РЅР° РЅР°Р№Р±Р»РёР¶С‡РёР№ Р°СЃС‚РµСЂРѕС—Рґ
   for (const bullet of world.ofKind('bullet')) {
     if (!bullet.homing) {
       continue;
@@ -802,10 +802,10 @@ function update(dt) {
     }
   }
 
-  // Оновлення світу та зіткнень
+  // РћРЅРѕРІР»РµРЅРЅСЏ СЃРІС–С‚Сѓ С‚Р° Р·С–С‚РєРЅРµРЅСЊ
   world.step(dt);
 
-  // Перехід танка через межі арени
+  // РџРµСЂРµС…С–Рґ С‚Р°РЅРєР° С‡РµСЂРµР· РјРµР¶С– Р°СЂРµРЅРё
   if (!tank.dead) {
     tank.wrap(WIDTH, HEIGHT);
   }
@@ -813,7 +813,7 @@ function update(dt) {
   input.endStep();
 }
 
-// Інтерполяція кута
+// Р†РЅС‚РµСЂРїРѕР»СЏС†С–СЏ РєСѓС‚Р°
 function interpolateAngle(a, b, alpha) {
   const difference = Math.atan2(
     Math.sin(b - a),
@@ -823,7 +823,7 @@ function interpolateAngle(a, b, alpha) {
   return a + difference * alpha;
 }
 
-// Малювання кадру гри
+// РњР°Р»СЋРІР°РЅРЅСЏ РєР°РґСЂСѓ РіСЂРё
 function render(alpha, stats) {
   const dx =
     ((tank.x - previousTank.x + WIDTH / 2 + WIDTH) %
@@ -874,7 +874,7 @@ function render(alpha, stats) {
   drawParticles();
   drawHUD(ctx, stats);
 
-  // Відображення рахунку та здоров'я
+  // Р’С–РґРѕР±СЂР°Р¶РµРЅРЅСЏ СЂР°С…СѓРЅРєСѓ С‚Р° Р·РґРѕСЂРѕРІ'СЏ
   ctx.save();
 
   ctx.fillStyle = '#ffffff';
@@ -891,7 +891,7 @@ function render(alpha, stats) {
   const displayedHp = playerId ? (localServerPlayer?.hp ?? '--') : tank.hp;
   ctx.fillText(`HP: ${displayedHp}`, WIDTH - 20, 55);
 
-  // Відображення гравця та кімнати
+  // Р’С–РґРѕР±СЂР°Р¶РµРЅРЅСЏ РіСЂР°РІС†СЏ С‚Р° РєС–РјРЅР°С‚Рё
   if (selectedRoom) {
     ctx.textAlign = 'left';
     ctx.font = '14px Arial';
@@ -909,14 +909,14 @@ function render(alpha, stats) {
     );
   }
 
-  // Повідомлення про відродження
+  // РџРѕРІС–РґРѕРјР»РµРЅРЅСЏ РїСЂРѕ РІС–РґСЂРѕРґР¶РµРЅРЅСЏ
   if ((playerId && localServerPlayer?.destroyed) || (!playerId && tank.dead)) {
     ctx.textAlign = 'center';
     ctx.font = 'bold 24px Arial';
     ctx.fillStyle = '#facc15';
 
     ctx.fillText(
-      'Відродження через 2 секунди...',
+      'Р’С–РґСЂРѕРґР¶РµРЅРЅСЏ С‡РµСЂРµР· 2 СЃРµРєСѓРЅРґРё...',
       WIDTH / 2,
       HEIGHT / 2,
     );
@@ -946,14 +946,14 @@ function render(alpha, stats) {
 }
 
 
-// Ігровий цикл
+// Р†РіСЂРѕРІРёР№ С†РёРєР»
 const loop = createLoop({
   update,
   render,
 });
 
 
- // Вхід гравця до вибраної кімнати
+ // Р’С…С–Рґ РіСЂР°РІС†СЏ РґРѕ РІРёР±СЂР°РЅРѕС— РєС–РјРЅР°С‚Рё
   lobby.addEventListener('joined', (event) => {
   playerName = event.detail.playerName;
   selectedRoom = event.detail.room;
@@ -961,15 +961,15 @@ const loop = createLoop({
   console.log('Player:', playerName);
   console.log('Selected room:', selectedRoom.name);
 
-  // Підключаємося до WebSocket-сервера
+  // РџС–РґРєР»СЋС‡Р°С”РјРѕСЃСЏ РґРѕ WebSocket-СЃРµСЂРІРµСЂР°
   gameSocket.connect(selectedRoom.id, playerName);
 
-  // Поки сервер не підтвердив вхід,
-  // ігровий цикл не запускаємо
+  // РџРѕРєРё СЃРµСЂРІРµСЂ РЅРµ РїС–РґС‚РІРµСЂРґРёРІ РІС…С–Рґ,
+  // С–РіСЂРѕРІРёР№ С†РёРєР» РЅРµ Р·Р°РїСѓСЃРєР°С”РјРѕ
   console.log('Waiting for server confirmation...');
 });
 
-// Сервер підтвердив вхід до кімнати
+// РЎРµСЂРІРµСЂ РїС–РґС‚РІРµСЂРґРёРІ РІС…С–Рґ РґРѕ РєС–РјРЅР°С‚Рё
 gameSocket.addEventListener('message', (event) => {
   const message = event.detail;
 
@@ -977,7 +977,7 @@ if (message.type === 'snapshot') {
   const snapshot = message;
 
   setTimeout(() => {
-    // Не застосовуємо старі знімки після виходу з кімнати
+    // РќРµ Р·Р°СЃС‚РѕСЃРѕРІСѓС”РјРѕ СЃС‚Р°СЂС– Р·РЅС–РјРєРё РїС–СЃР»СЏ РІРёС…РѕРґСѓ Р· РєС–РјРЅР°С‚Рё
     if (!playerId) {
       return;
     }
@@ -1005,14 +1005,14 @@ if (message.type === 'snapshot') {
 
     serverAsteroids = nextAsteroids;
 
-    // Звук тільки при фактичному зменшенні HP, а не кожного кадру.
+    // Р—РІСѓРє С‚С–Р»СЊРєРё РїСЂРё С„Р°РєС‚РёС‡РЅРѕРјСѓ Р·РјРµРЅС€РµРЅРЅС– HP, Р° РЅРµ РєРѕР¶РЅРѕРіРѕ РєР°РґСЂСѓ.
     for (const ship of serverPlayers) {
       const previous = previousPlayerStates.get(ship.id);
       if (previous && ship.hp < previous.hp) {
         emitGameEvent(ship.destroyed && !previous.destroyed ? 'exploded' : 'hit');
       }
       if (ship.id === playerId && previous?.destroyed && !ship.destroyed) {
-        // Після відродження не відтворюємо старі непідтверджені команди.
+        // РџС–СЃР»СЏ РІС–РґСЂРѕРґР¶РµРЅРЅСЏ РЅРµ РІС–РґС‚РІРѕСЂСЋС”РјРѕ СЃС‚Р°СЂС– РЅРµРїС–РґС‚РІРµСЂРґР¶РµРЅС– РєРѕРјР°РЅРґРё.
         pendingInputs = [];
         correctionX = 0;
         correctionY = 0;
@@ -1085,22 +1085,22 @@ if (message.type === 'snapshot') {
     console.log('Player ID:', playerId);
     console.log('Room:', selectedRoom.name);
 
-    // Налаштовуємо астероїди відповідно до кімнати
+    // РќР°Р»Р°С€С‚РѕРІСѓС”РјРѕ Р°СЃС‚РµСЂРѕС—РґРё РІС–РґРїРѕРІС–РґРЅРѕ РґРѕ РєС–РјРЅР°С‚Рё
     spawnRoomAsteroids(
       selectedRoom.config.asteroidCount,
     );
 
-    // Приховуємо лобі після підтвердження сервера
+    // РџСЂРёС…РѕРІСѓС”РјРѕ Р»РѕР±С– РїС–СЃР»СЏ РїС–РґС‚РІРµСЂРґР¶РµРЅРЅСЏ СЃРµСЂРІРµСЂР°
     lobbyUI.hide();
     chatUI.clear();
     chatUI.show();
 
-    // Активуємо аудіосистему
+    // РђРєС‚РёРІСѓС”РјРѕ Р°СѓРґС–РѕСЃРёСЃС‚РµРјСѓ
     audioSystem.resume().catch((error) => {
       console.warn('Audio resume failed:', error);
     });
 
-    // Запускаємо гру
+    // Р—Р°РїСѓСЃРєР°С”РјРѕ РіСЂСѓ
     loop.start();
   }
 
@@ -1120,7 +1120,7 @@ if (message.type === 'snapshot') {
   }
 });
 
-// Повідомлення про втрату з'єднання
+// РџРѕРІС–РґРѕРјР»РµРЅРЅСЏ РїСЂРѕ РІС‚СЂР°С‚Сѓ Р·'С”РґРЅР°РЅРЅСЏ
 gameSocket.addEventListener('disconnected', (event) => {
   console.warn(
     'Disconnected from server:',
@@ -1128,17 +1128,17 @@ gameSocket.addEventListener('disconnected', (event) => {
   );
 });
 
-// Спроба повторного підключення
+// РЎРїСЂРѕР±Р° РїРѕРІС‚РѕСЂРЅРѕРіРѕ РїС–РґРєР»СЋС‡РµРЅРЅСЏ
 gameSocket.addEventListener('reconnecting', (event) => {
   console.log(
     `Reconnecting in ${event.detail.delay} ms...`,
   );
 });
 
-// Контролер завантаження
+// РљРѕРЅС‚СЂРѕР»РµСЂ Р·Р°РІР°РЅС‚Р°Р¶РµРЅРЅСЏ
 let loadingController = null;
 
-// Завантаження ресурсів гри
+// Р—Р°РІР°РЅС‚Р°Р¶РµРЅРЅСЏ СЂРµСЃСѓСЂСЃС–РІ РіСЂРё
 async function startGame() {
   loadingController?.abort();
 
@@ -1155,7 +1155,7 @@ async function startGame() {
   );
 
   try {
-    // Завантажуємо manifest.json
+    // Р—Р°РІР°РЅС‚Р°Р¶СѓС”РјРѕ manifest.json
     const manifest = await fetchJson(
       '/manifest.json',
       signal,
@@ -1163,7 +1163,7 @@ async function startGame() {
 
     audioContext ??= new AudioContext();
 
-    // Паралельно завантажуємо ресурси
+    // РџР°СЂР°Р»РµР»СЊРЅРѕ Р·Р°РІР°РЅС‚Р°Р¶СѓС”РјРѕ СЂРµСЃСѓСЂСЃРё
     gameAssets = await loadAll(
       manifest,
       signal,
@@ -1183,20 +1183,20 @@ async function startGame() {
       [...gameAssets.keys()],
     );
 
-    // Створюємо звукову систему
+    // РЎС‚РІРѕСЂСЋС”РјРѕ Р·РІСѓРєРѕРІСѓ СЃРёСЃС‚РµРјСѓ
     audioSystem = createAudioSystem(
       audioContext,
       gameAssets,
     );
 
-    // Показуємо лобі після завантаження
+    // РџРѕРєР°Р·СѓС”РјРѕ Р»РѕР±С– РїС–СЃР»СЏ Р·Р°РІР°РЅС‚Р°Р¶РµРЅРЅСЏ
     lobbyUI.show();
   } catch (error) {
     if (signal.aborted) {
       return;
     }
 
-    // При помилці приховуємо лобі
+    // РџСЂРё РїРѕРјРёР»С†С– РїСЂРёС…РѕРІСѓС”РјРѕ Р»РѕР±С–
     lobbyUI.hide();
 
     console.error(
@@ -1216,7 +1216,7 @@ async function startGame() {
   }
 }
 
-// Кнопка повторного завантаження
+// РљРЅРѕРїРєР° РїРѕРІС‚РѕСЂРЅРѕРіРѕ Р·Р°РІР°РЅС‚Р°Р¶РµРЅРЅСЏ
 function showRetryButton() {
   let button = document.getElementById(
     'retryLoading',
@@ -1250,6 +1250,6 @@ function showRetryButton() {
   };
 }
 
-// Початкове завантаження ресурсів
-// Гра НЕ запускається до натискання JOIN GAME
+// РџРѕС‡Р°С‚РєРѕРІРµ Р·Р°РІР°РЅС‚Р°Р¶РµРЅРЅСЏ СЂРµСЃСѓСЂСЃС–РІ
+// Р“СЂР° РќР• Р·Р°РїСѓСЃРєР°С”С‚СЊСЃСЏ РґРѕ РЅР°С‚РёСЃРєР°РЅРЅСЏ JOIN GAME
 startGame();

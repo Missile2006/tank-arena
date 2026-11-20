@@ -1,5 +1,11 @@
 
-export function drawHUD(ctx, stats) {
+export interface HudStats {
+  fps: number;
+  stepsPerSecond: number;
+  frameTime: number;
+}
+
+export function drawHUD(ctx: CanvasRenderingContext2D, stats: HudStats): void {
   ctx.save();
 
   // Розміри та положення панелі

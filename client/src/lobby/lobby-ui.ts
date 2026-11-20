@@ -1,5 +1,25 @@
 
-export function createLobbyUI(lobby) {
+export interface LobbyRoom {
+  id: string;
+  name: string;
+  players: number;
+  maxPlayers: number;
+  config: { asteroidCount: number };
+}
+
+export interface LobbyEvents {
+  addEventListener(type: string, listener: EventListener): void;
+  join(name: string, roomId: string): unknown;
+  show(): void;
+  hide(): void;
+}
+
+export interface LobbyUI {
+  show(): void;
+  hide(): void;
+}
+
+export function createLobbyUI(lobby: LobbyEvents): LobbyUI {
   const container = document.createElement('div');
   container.id = 'gameLobby';
 
@@ -82,7 +102,7 @@ export function createLobbyUI(lobby) {
 
   // Оновлення списку кімнат
   lobby.addEventListener('roomsUpdated', (event) => {
-    const rooms = event.detail.rooms;
+    const rooms = (event as CustomEvent<{ rooms: LobbyRoom[] }>).detail.rooms;
 
     roomSelect.replaceChildren();
 
@@ -113,7 +133,7 @@ export function createLobbyUI(lobby) {
 
   // Повідомлення про помилки завантаження
   lobby.addEventListener('error', (event) => {
-    status.textContent = `Error: ${event.detail.message}`;
+    status.textContent = `Error: ${(event as CustomEvent<{ message: string }>).detail.message}`;
     joinButton.disabled = true;
   });
 
@@ -122,7 +142,7 @@ export function createLobbyUI(lobby) {
     try {
       lobby.join(nameInput.value, roomSelect.value);
     } catch (error) {
-      status.textContent = error.message;
+      status.textContent = error instanceof Error ? error.message : String(error);
     }
   });
 

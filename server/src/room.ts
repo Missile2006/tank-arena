@@ -40,6 +40,7 @@ export class Room extends EventEmitter<RoomEventMap> {
   join(playerId: string, playerName: string): RoomPlayer {
     if (this.isFull) throw new Error('Room is full');
     if (this.players.has(playerId)) throw new Error('Player already joined');
+    if (this.playerCount === 0) this.simulation.resetAsteroids();
     const player: RoomPlayer = { id: playerId, name: playerName };
     this.players.set(playerId, player);
     this.simulation.addPlayer(playerId);

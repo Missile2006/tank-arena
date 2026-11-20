@@ -39,6 +39,8 @@ export class GameSimulation {
   readonly lastFireTick = new Map<string, number>();
   asteroids: ServerAsteroid[] = [];
   tick = 0;
+  private nextAsteroidId = 1;
+  private readonly asteroidRespawns: number[] = [];
 
   constructor(room: Room) {
     this.room = room;
@@ -51,22 +53,44 @@ export class GameSimulation {
 
     // Серверні астероїди
 
-    for (let i = 0; i < 5; i++) {
-      const angle = Math.random() * Math.PI * 2;
-      const speed = 35 + Math.random() * 35;
+    this.resetAsteroids();
 
-      this.asteroids.push({
-        id: i + 1,
-        x: 100 + Math.random() * 700,
-        y: 80 + Math.random() * 390,
-        vx: Math.cos(angle) * speed,
-        vy: Math.sin(angle) * speed,
-        radius: 25,
-        hp: 50,
-        turnPhase: Math.random() * Math.PI * 2,
-      });
+  }
+
+  private createAsteroid(): ServerAsteroid {
+    const angle = Math.random() * Math.PI * 2;
+    const speed = 35 + Math.random() * 35;
+    return {
+      id: this.nextAsteroidId++,
+      x: 100 + Math.random() * 700,
+      y: 80 + Math.random() * 390,
+      vx: Math.cos(angle) * speed,
+      vy: Math.sin(angle) * speed,
+      radius: 25,
+      hp: 50,
+      turnPhase: Math.random() * Math.PI * 2,
+    };
+  }
+
+  // Called when an empty room is entered again; active rooms keep their state.
+  resetAsteroids(): void {
+    this.asteroidRespawns.length = 0;
+    this.asteroids = Array.from(
+      { length: this.room.asteroidCount },
+      () => this.createAsteroid(),
+    );
+  }
+
+  private updateAsteroidRespawns(): void {
+    const now = this.tick * FIXED_DT;
+    while (this.asteroidRespawns.length > 0 &&
+      this.asteroidRespawns[0] !== undefined &&
+      this.asteroidRespawns[0] <= now) {
+      this.asteroidRespawns.shift();
+      if (this.asteroids.length < this.room.asteroidCount) {
+        this.asteroids.push(this.createAsteroid());
+      }
     }
-
   }
 
   // Додавання гравця
@@ -284,6 +308,7 @@ export class GameSimulation {
 
     // 4. Перевірка влучань куль в астероїди
     this.checkBulletAsteroidCollisions();
+    this.updateAsteroidRespawns();
 
     // 5. Відродження знищених танків
     this.updateRespawns();
@@ -325,7 +350,10 @@ export class GameSimulation {
         );
 
         if (asteroid.hp === 0) {
-          destroyedAsteroidIds.add(asteroid.id);
+          if (!destroyedAsteroidIds.has(asteroid.id)) {
+            destroyedAsteroidIds.add(asteroid.id);
+            this.asteroidRespawns.push(this.tick * FIXED_DT + 5);
+          }
 
           console.log(
             `Asteroid ${asteroid.id} destroyed!`,

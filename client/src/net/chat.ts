@@ -1,5 +1,16 @@
 
-export function createChatUI(gameSocket) {
+export interface ChatSocket {
+  send(message: { type: 'chat'; text: string }): unknown;
+}
+
+export interface ChatUI {
+  show(): void;
+  hide(): void;
+  addMessage(playerName: string, text: string): void;
+  clear(): void;
+}
+
+export function createChatUI(gameSocket: ChatSocket): ChatUI {
   const container = document.createElement('div');
   container.id = 'gameChat';
 
@@ -103,7 +114,7 @@ export function createChatUI(gameSocket) {
 
   document.body.appendChild(container);
 
-  function addMessage(playerName, text) {
+  function addMessage(playerName: string, text: string): void {
     const message = document.createElement('div');
     message.style.marginBottom = '6px';
 

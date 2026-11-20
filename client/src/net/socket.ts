@@ -1,6 +1,6 @@
 
 import { decodeSnapshot } from 'tank-arena-shared/protocol';
-import { NetworkSimulator } from './network-simulator.js';
+import { NetworkSimulator } from './network-simulator';
 
 type OutgoingMessage = { type: string; [key: string]: unknown };
 type IncomingMessage = { type: string; id?: number; [key: string]: unknown };

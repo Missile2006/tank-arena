@@ -1,5 +1,21 @@
 
-export function createNetgraph() {
+export interface NetgraphStats {
+  protocol: string;
+  rtt: number;
+  snapshotAge: number;
+  bytesPerSecond: number;
+  inputQueue: number;
+  correction: number;
+  lag: number;
+  jitter: number;
+  loss: number;
+}
+
+export interface Netgraph {
+  update(stats: NetgraphStats): void;
+}
+
+export function createNetgraph(): Netgraph {
   const panel = document.createElement('div');
 
   panel.style.cssText = `
@@ -23,7 +39,7 @@ export function createNetgraph() {
 
   let lastUpdate = 0;
 
-  function update(stats) {
+  function update(stats: NetgraphStats): void {
     const now = performance.now();
 
     if (now - lastUpdate < 200) {

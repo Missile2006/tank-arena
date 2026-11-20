@@ -1,4 +1,10 @@
-export function drawLoading(ctx, canvas, completed, total, message = 'Loading assets...') {
+export function drawLoading(
+  ctx: CanvasRenderingContext2D,
+  canvas: HTMLCanvasElement,
+  completed: number,
+  total: number,
+  message = 'Loading assets...',
+): void {
   const width = canvas.width;
   const height = canvas.height;
 
