@@ -1,33 +1,52 @@
 import './style.css';
 
-import { createChatUI } from './net/chat.ts';
-import { GameSocket } from './net/socket.ts';
-import { createNetgraph } from './net/netgraph.ts';
+import { createChatUI } from './net/chat';
+import { GameSocket } from './net/socket';
+import { createNetgraph } from './net/netgraph';
 //import { runEventLoopExperiments } from './experiments/event-loop.ts';
 import { createInput } from './input.js';
-import { Ship } from './sim/ship.ts';
-import { World } from './sim/world.ts';
-import { Asteroid } from './sim/asteroid.ts';
+import { Ship } from './sim/ship';
+import { World } from './sim/world';
+import { Asteroid } from './sim/asteroid';
 import { Vector2 } from './sim/vector.js';
 import { createLoop } from './loop.js';
-import { drawHUD } from './render/hud.ts';
+import { drawHUD } from './render/hud';
 import { setupCanvas } from './render/canvas.js';
-import { applyHoming } from './sim/homing.ts';
-import { createHealthPickup } from './sim/pickup.ts';
-import { fetchJson, loadAll } from './assets/loader.ts';
-import { drawLoading } from './render/loading.ts';
-import { emitGameEvent, gameEvents } from './events/bus.js';
-import { createAudioSystem } from './audio/audio.ts';
-import { Lobby } from './lobby/lobby.ts';
-import { createLobbyUI } from './lobby/lobby-ui.ts';
+import { applyHoming } from './sim/homing';
+import { createHealthPickup } from './sim/pickup';
+import { fetchJson, loadAll } from './assets/loader';
+import { drawLoading } from './render/loading';
+import { emitGameEvent, gameEvents } from './events/bus';
+import { createAudioSystem } from './audio/audio';
+import type { AudioSystem } from './audio/audio';
+import type { AssetManifest } from './assets/loader';
+import type { LobbyRoom } from './lobby/lobby-ui';
+import type { InputState, ShipState } from 'tank-arena-shared/simulation';
+import type { LoopStats } from './loop';
+import { Particle } from './sim/particle';
+import { Bullet } from './sim/bullet';
+import { Asteroid as LocalAsteroid } from './sim/asteroid';
+import { Lobby } from './lobby/lobby';
+import { createLobbyUI } from './lobby/lobby-ui';
 import {
   createShip,
   integrate as integrateNetworkShip,
   FIXED_DT,
 } from 'tank-arena-shared/simulation';
 
+interface PlayerState extends ShipState { hp: number; destroyed: boolean; lastProcessedSeq?: number; }
+interface ServerBullet { id: number; x: number; y: number; vx: number; vy: number; }
+interface ServerAsteroid { id: number; x: number; y: number; radius: number; hp: number; }
+interface ExplosionParticle { x: number; y: number; vx: number; vy: number; life: number; maxLife: number; radius: number; }
+interface PredictedBullet { x: number; y: number; vx: number; vy: number; ttl: number; createdAt: number; }
+interface SnapshotFrame { time: number; players: PlayerState[]; }
+interface NetworkMessage { type: string; tick?: number; players?: PlayerState[]; bullets?: ServerBullet[]; asteroids?: ServerAsteroid[]; playerId?: string; room?: LobbyRoom; playerName?: string; text?: string; message?: string; }
+interface GameEvent<T> extends CustomEvent<T> {}
+const customEvent = <T>(event: Event): CustomEvent<T> => event as CustomEvent<T>;
+
 // РќР°Р»Р°С€С‚СѓРІР°РЅРЅСЏ С–РіСЂРѕРІРѕРіРѕ РїРѕР»СЏ
-const canvas = document.getElementById('gameCanvas');
+const canvas = document.getElementById('gameCanvas') as HTMLCanvasElement;
+if (!(canvas instanceof HTMLCanvasElement)) throw new Error('Game canvas not found');
 
 const WIDTH = 900;
 const HEIGHT = 550;
@@ -35,9 +54,9 @@ const HEIGHT = 550;
 const { ctx } = setupCanvas(canvas, WIDTH, HEIGHT);
 
 // Р—Р°РІР°РЅС‚Р°Р¶РµРЅС– СЂРµСЃСѓСЂСЃРё С‚Р° Р°СѓРґС–РѕСЃРёСЃС‚РµРјР°
-let gameAssets = new Map();
-let audioContext = null;
-let audioSystem = null;
+let gameAssets: Map<string, unknown> = new Map();
+let audioContext: AudioContext | null = null;
+let audioSystem: AudioSystem | null = null;
 
 // Р›РѕР±С–
 const lobby = new Lobby();
@@ -48,9 +67,9 @@ const gameSocket = new GameSocket('/ws');
 const netgraph = createNetgraph();
 const chatUI = createChatUI(gameSocket);
 
-let selectedRoom = null;
+let selectedRoom: LobbyRoom | null = null;
 let playerName = '';
-let playerId = null;
+let playerId: string | null = null;
 
 // Р›Р°Р±РѕСЂР°С‚РѕСЂРЅР° в„–5: РЅСѓРјРµСЂР°С†С–СЏ РєРѕРјР°РЅРґ РєРµСЂСѓРІР°РЅРЅСЏ
 let inputSequence = 0;
@@ -59,26 +78,26 @@ let inputAccumulator = 0;
 const NETWORK_INPUT_DT = 1 / 30;
 
 // РћСЃС‚Р°РЅРЅС–Р№ СЃС‚Р°РЅ РєРѕСЂР°Р±Р»С–РІ, РѕС‚СЂРёРјР°РЅРёР№ РІС–Рґ СЃРµСЂРІРµСЂР°
-let serverPlayers = [];
-let serverBullets = [];
-let serverAsteroids = [];
-let asteroidExplosions = [];
+let serverPlayers: PlayerState[] = [];
+let serverBullets: ServerBullet[] = [];
+let serverAsteroids: ServerAsteroid[] = [];
+let asteroidExplosions: ExplosionParticle[] = [];
 // РћСЃС‚Р°РЅРЅС–Р№ РїС–РґС‚РІРµСЂРґР¶РµРЅРёР№ СЃРµСЂРІРµСЂРѕРј СЃС‚Р°РЅ Р·РґРѕСЂРѕРІвЂ™СЏ РєРѕР¶РЅРѕРіРѕ С‚Р°РЅРєР°
-const previousPlayerStates = new Map();
+const previousPlayerStates = new Map<string, { hp: number; destroyed: boolean }>();
 
-let predictedBullets = [];
+let predictedBullets: PredictedBullet[] = [];
 let lastPredictedFireTime = -Infinity;
 
 const BULLET_SPEED = 250;
 const BULLET_LIFETIME = 1.5;
 const BULLET_FIRE_INTERVAL_MS = 200;
-const snapshotHistory = [];
+const snapshotHistory: SnapshotFrame[] = [];
 const INTERPOLATION_DELAY_MS = 100;
 const MAX_SNAPSHOT_HISTORY = 30;
 // Client-side prediction
-let predictedShip = null;
+let predictedShip: ShipState | null = null;
 let latestServerTick = -1;
-let pendingInputs = [];
+let pendingInputs: InputState[] = [];
 let correctionX = 0;
 let correctionY = 0;
 
@@ -87,8 +106,9 @@ const CORRECTION_SPEED = 12;
 const NETWORK_DELAY_MS = 0;
 
 // РњР°Р»СЋРІР°РЅРЅСЏ СЃРїСЂР°Р№С‚С–РІ
-function drawSprite(id, x, y, width, height, frame = 0, angle = 0) {
+function drawSprite(id: string, x: number, y: number, width: number, height: number, frame = 0, angle = 0) {
   const image = gameAssets.get(id);
+  if (!(image instanceof ImageBitmap || image instanceof HTMLImageElement)) return false;
 
   if (!image) {
     return false;
@@ -144,7 +164,7 @@ let previousTank = {
 };
 
 // РЎС‚РІРѕСЂРµРЅРЅСЏ Р°СЃС‚РµСЂРѕС—РґС–РІ РґР»СЏ РІРёР±СЂР°РЅРѕС— РєС–РјРЅР°С‚Рё
-function spawnRoomAsteroids(count) {
+function spawnRoomAsteroids(count: number) {
   // Р’РёРґР°Р»СЏС”РјРѕ Р°СЃС‚РµСЂРѕС—РґРё РїРѕРїРµСЂРµРґРЅСЊРѕС— РєС–РјРЅР°С‚Рё
   for (const asteroid of [...world.ofKind('asteroid')]) {
     world.despawn(asteroid);
@@ -206,12 +226,12 @@ function getInterpolatedPlayers() {
   const renderTime =
     performance.now() - INTERPOLATION_DELAY_MS;
 
-  let older = snapshotHistory[0];
-  let newer = snapshotHistory[snapshotHistory.length - 1];
+  let older = snapshotHistory[0]!;
+  let newer = snapshotHistory[snapshotHistory.length - 1]!;
 
   for (let i = 0; i < snapshotHistory.length - 1; i++) {
-    const current = snapshotHistory[i];
-    const next = snapshotHistory[i + 1];
+    const current = snapshotHistory[i]!;
+    const next = snapshotHistory[i + 1]!;
 
     if (
       current.time <= renderTime &&
@@ -254,7 +274,7 @@ function getInterpolatedPlayers() {
 }
 
 // РЁРєР°Р»Р° HP РїСЂРёРІ'СЏР·Р°РЅР° РґРѕ РїРѕР·РёС†С–С—, РЅР° СЏРєС–Р№ С‚Р°РЅРє РЅР°РјР°Р»СЊРѕРІР°РЅРёР№.
-function drawHealthBar(x, y, hp = 100) {
+function drawHealthBar(x: number, y: number, hp = 100) {
   const health = Math.max(0, Math.min(100, Number(hp) || 0));
   const width = 52;
   const height = 7;
@@ -305,7 +325,7 @@ function drawServerPlayers() {
 }
 
 // РњР°Р»СЋРІР°РЅРЅСЏ С‚Р°РЅРєР°
-function drawTank(renderTank) {
+function drawTank(renderTank: {x: number; y: number; angle: number}) {
   // РџС–Рґ С‡Р°СЃ РЅРµРІСЂР°Р·Р»РёРІРѕСЃС‚С– С‚Р°РЅРє Р±Р»РёРјР°С”
   if (tank.invulnerable) {
     const blink = Math.floor(tank.animationTime * 10) % 2;
@@ -376,7 +396,9 @@ function drawPredictedBullets() {
 }
 // РњР°Р»СЋРІР°РЅРЅСЏ РєСѓР»СЊ
 function drawBullets() {
-  for (const bullet of world.ofKind('bullet')) {
+  for (const entity of world.ofKind('bullet')) {
+    if (!(entity instanceof Bullet)) continue;
+    const bullet = entity;
     drawSprite(
       'bullet',
       bullet.position.x,
@@ -388,8 +410,8 @@ function drawBullets() {
     );
   }
 }
-function createAsteroidExplosion(x, y) {
-  const particles = [];
+function createAsteroidExplosion(x: number, y: number) {
+  const particles: ExplosionParticle[] = [];
 
   for (let i = 0; i < 18; i++) {
     const angle = (i / 18) * Math.PI * 2;
@@ -411,7 +433,7 @@ function createAsteroidExplosion(x, y) {
   gameEvents.dispatchEvent(new Event('exploded'));
 }
 
-function updateAsteroidExplosions(dt) {
+function updateAsteroidExplosions(dt: number) {
   for (const particle of asteroidExplosions) {
     particle.x += particle.vx * dt;
     particle.y += particle.vy * dt;
@@ -477,7 +499,9 @@ function drawAsteroids() {
 
 // РњР°Р»СЋРІР°РЅРЅСЏ С‡Р°СЃС‚РёРЅРѕРє РІРёР±СѓС…Сѓ
 function drawParticles() {
-  for (const particle of world.ofKind('particle')) {
+  for (const entity of world.ofKind('particle')) {
+    if (!(entity instanceof Particle)) continue;
+    const particle = entity;
     ctx.save();
 
     ctx.globalAlpha = particle.opacity;
@@ -526,11 +550,13 @@ function drawPickups() {
 }
 
 // РџРѕС€СѓРє РЅР°Р№Р±Р»РёР¶С‡РѕРіРѕ Р°СЃС‚РµСЂРѕС—РґР°
-function findNearestAsteroid(position) {
-  let nearest = null;
+function findNearestAsteroid(position: Vector2): LocalAsteroid | null {
+  let nearest: LocalAsteroid | null = null;
   let minDistance = Infinity;
 
-  for (const asteroid of world.ofKind('asteroid')) {
+  for (const entity of world.ofKind('asteroid')) {
+    if (!(entity instanceof LocalAsteroid)) continue;
+    const asteroid = entity;
     const distance = position.distanceTo(asteroid.position);
 
     if (distance < minDistance) {
@@ -543,7 +569,7 @@ function findNearestAsteroid(position) {
 }
 
 
-function reconcileLocalShip(serverShip) {
+function reconcileLocalShip(serverShip: PlayerState | null) {
   if (!serverShip) {
     return;
   }
@@ -606,7 +632,7 @@ function predictBullet() {
   });
 }
 
-function sendNetworkInput(dt) {
+function sendNetworkInput(dt: number) {
   if (!playerId || !gameSocket.isJoined) {
     return;
   }
@@ -619,7 +645,7 @@ function sendNetworkInput(dt) {
 
     inputSequence += 1;
 
-    const command = {
+    const command: InputState & { type: 'input' } = {
       type: 'input',
       seq: inputSequence,
 
@@ -643,7 +669,7 @@ function sendNetworkInput(dt) {
     };
 
     // РќР°РґСЃРёР»Р°С”РјРѕ РєРѕРјР°РЅРґСѓ СЃРµСЂРІРµСЂСѓ
-    gameSocket.send(command);
+    gameSocket.send({ ...command });
 
     if (command.fire && predictedShip) {
       predictBullet();
@@ -664,7 +690,7 @@ function sendNetworkInput(dt) {
   }
 }
 
-function updatePredictedBullets(dt) {
+function updatePredictedBullets(dt: number) {
   for (const bullet of predictedBullets) {
     bullet.x += bullet.vx * dt;
     bullet.y += bullet.vy * dt;
@@ -677,7 +703,7 @@ function updatePredictedBullets(dt) {
 }
 
 // РћРЅРѕРІР»РµРЅРЅСЏ С–РіСЂРѕРІРѕС— С„С–Р·РёРєРё
-function update(dt) {
+function update(dt: number) {
   sendNetworkInput(dt);
   updateAsteroidExplosions(dt);
 
@@ -773,7 +799,9 @@ function update(dt) {
 
 
   // РЈСЃС– Р°СЃС‚РµСЂРѕС—РґРё РїРµСЂРµСЃР»С–РґСѓСЋС‚СЊ С‚Р°РЅРє
-  for (const asteroid of world.ofKind('asteroid')) {
+  for (const entity of world.ofKind('asteroid')) {
+    if (!(entity instanceof LocalAsteroid)) continue;
+    const asteroid = entity;
     applyHoming(asteroid, tank, dt, 5);
 
     // РћР±РјРµР¶СѓС”РјРѕ РјР°РєСЃРёРјР°Р»СЊРЅСѓ С€РІРёРґРєС–СЃС‚СЊ Р°СЃС‚РµСЂРѕС—РґР°
@@ -788,7 +816,9 @@ function update(dt) {
   }
 
   // РЎР°РјРѕРЅР°РІРµРґРµРЅРЅСЏ РєСѓР»СЊ РЅР° РЅР°Р№Р±Р»РёР¶С‡РёР№ Р°СЃС‚РµСЂРѕС—Рґ
-  for (const bullet of world.ofKind('bullet')) {
+  for (const entity of world.ofKind('bullet')) {
+    if (!(entity instanceof Bullet)) continue;
+    const bullet = entity;
     if (!bullet.homing) {
       continue;
     }
@@ -814,7 +844,7 @@ function update(dt) {
 }
 
 // Р†РЅС‚РµСЂРїРѕР»СЏС†С–СЏ РєСѓС‚Р°
-function interpolateAngle(a, b, alpha) {
+function interpolateAngle(a: number, b: number, alpha: number) {
   const difference = Math.atan2(
     Math.sin(b - a),
     Math.cos(b - a),
@@ -824,7 +854,7 @@ function interpolateAngle(a, b, alpha) {
 }
 
 // РњР°Р»СЋРІР°РЅРЅСЏ РєР°РґСЂСѓ РіСЂРё
-function render(alpha, stats) {
+function render(alpha: number, stats: LoopStats) {
   const dx =
     ((tank.x - previousTank.x + WIDTH / 2 + WIDTH) %
       WIDTH) -
@@ -903,7 +933,7 @@ function render(alpha, stats) {
     );
 
     ctx.fillText(
-      `Room: ${selectedRoom.name}`,
+      `Room: ${selectedRoom?.name}`,
       20,
       HEIGHT - 20,
     );
@@ -955,14 +985,15 @@ const loop = createLoop({
 
  // Р’С…С–Рґ РіСЂР°РІС†СЏ РґРѕ РІРёР±СЂР°РЅРѕС— РєС–РјРЅР°С‚Рё
   lobby.addEventListener('joined', (event) => {
-  playerName = event.detail.playerName;
-  selectedRoom = event.detail.room;
+  const detail = customEvent<{playerName: string; room: LobbyRoom}>(event).detail;
+  playerName = detail.playerName;
+  selectedRoom = detail.room;
 
   console.log('Player:', playerName);
-  console.log('Selected room:', selectedRoom.name);
+  console.log('Selected room:', selectedRoom?.name);
 
   // РџС–РґРєР»СЋС‡Р°С”РјРѕСЃСЏ РґРѕ WebSocket-СЃРµСЂРІРµСЂР°
-  gameSocket.connect(selectedRoom.id, playerName);
+  gameSocket.connect(selectedRoom?.id ?? '', playerName);
 
   // РџРѕРєРё СЃРµСЂРІРµСЂ РЅРµ РїС–РґС‚РІРµСЂРґРёРІ РІС…С–Рґ,
   // С–РіСЂРѕРІРёР№ С†РёРєР» РЅРµ Р·Р°РїСѓСЃРєР°С”РјРѕ
@@ -971,7 +1002,7 @@ const loop = createLoop({
 
 // РЎРµСЂРІРµСЂ РїС–РґС‚РІРµСЂРґРёРІ РІС…С–Рґ РґРѕ РєС–РјРЅР°С‚Рё
 gameSocket.addEventListener('message', (event) => {
-  const message = event.detail;
+  const message = customEvent<NetworkMessage>(event).detail;
 
 if (message.type === 'snapshot') {
   const snapshot = message;
@@ -982,11 +1013,11 @@ if (message.type === 'snapshot') {
       return;
     }
 
-    if (snapshot.tick <= latestServerTick) {
+    if ((snapshot.tick ?? -1) <= latestServerTick) {
       return;
     }
 
-    serverPlayers = snapshot.players;
+    serverPlayers = snapshot.players ?? [];
     serverBullets = snapshot.bullets ?? [];
     const nextAsteroids = snapshot.asteroids ?? [];
 
@@ -1022,14 +1053,14 @@ if (message.type === 'snapshot') {
     }
     snapshotHistory.push({
       time: performance.now(),
-      players: snapshot.players.map((player) => ({ ...player })),
+      players: (snapshot.players ?? []).map((player) => ({ ...player })),
     });
 
     if (snapshotHistory.length > MAX_SNAPSHOT_HISTORY) {
       snapshotHistory.shift();
     }
 
-    latestServerTick = snapshot.tick;
+    latestServerTick = snapshot.tick ?? -1;
 
     const localServerShip = serverPlayers.find(
       (ship) => ship.id === playerId,
@@ -1047,7 +1078,7 @@ if (message.type === 'snapshot') {
       }
     }
 
-    if (snapshot.tick % 60 === 0) {
+    if ((snapshot.tick ?? -1) % 60 === 0) {
       console.log(
         'DELAYED SNAPSHOT:',
         snapshot.tick,
@@ -1064,8 +1095,8 @@ if (message.type === 'snapshot') {
 }
 
   if (message.type === 'joined') {
-    playerId = message.playerId;
-    selectedRoom = message.room;
+    playerId = message.playerId ?? null;
+    selectedRoom = message.room ?? null;
     inputSequence = 0;
     inputAccumulator = 0;
     predictedShip = null;
@@ -1083,11 +1114,11 @@ if (message.type === 'snapshot') {
 
     console.log('Successfully joined room!');
     console.log('Player ID:', playerId);
-    console.log('Room:', selectedRoom.name);
+    console.log('Room:', selectedRoom?.name);
 
     // РќР°Р»Р°С€С‚РѕРІСѓС”РјРѕ Р°СЃС‚РµСЂРѕС—РґРё РІС–РґРїРѕРІС–РґРЅРѕ РґРѕ РєС–РјРЅР°С‚Рё
     spawnRoomAsteroids(
-      selectedRoom.config.asteroidCount,
+      selectedRoom?.config.asteroidCount ?? 0,
     );
 
     // РџСЂРёС…РѕРІСѓС”РјРѕ Р»РѕР±С– РїС–СЃР»СЏ РїС–РґС‚РІРµСЂРґР¶РµРЅРЅСЏ СЃРµСЂРІРµСЂР°
@@ -1096,7 +1127,7 @@ if (message.type === 'snapshot') {
     chatUI.show();
 
     // РђРєС‚РёРІСѓС”РјРѕ Р°СѓРґС–РѕСЃРёСЃС‚РµРјСѓ
-    audioSystem.resume().catch((error) => {
+    audioSystem?.resume().catch((error) => {
       console.warn('Audio resume failed:', error);
     });
 
@@ -1110,8 +1141,8 @@ if (message.type === 'snapshot') {
 
   if (message.type === 'chat') {
     chatUI.addMessage(
-    message.playerName,
-      message.text
+    message.playerName ?? '',
+      message.text ?? ''
     );
   }
 
@@ -1124,19 +1155,19 @@ if (message.type === 'snapshot') {
 gameSocket.addEventListener('disconnected', (event) => {
   console.warn(
     'Disconnected from server:',
-    event.detail,
+    customEvent<unknown>(event).detail,
   );
 });
 
 // РЎРїСЂРѕР±Р° РїРѕРІС‚РѕСЂРЅРѕРіРѕ РїС–РґРєР»СЋС‡РµРЅРЅСЏ
 gameSocket.addEventListener('reconnecting', (event) => {
   console.log(
-    `Reconnecting in ${event.detail.delay} ms...`,
+    `Reconnecting in ${customEvent<{delay: number}>(event).detail.delay} ms...`,
   );
 });
 
 // РљРѕРЅС‚СЂРѕР»РµСЂ Р·Р°РІР°РЅС‚Р°Р¶РµРЅРЅСЏ
-let loadingController = null;
+let loadingController: AbortController | null = null;
 
 // Р—Р°РІР°РЅС‚Р°Р¶РµРЅРЅСЏ СЂРµСЃСѓСЂСЃС–РІ РіСЂРё
 async function startGame() {
@@ -1159,7 +1190,7 @@ async function startGame() {
     const manifest = await fetchJson(
       '/manifest.json',
       signal,
-    );
+    ) as AssetManifest;
 
     audioContext ??= new AudioContext();
 

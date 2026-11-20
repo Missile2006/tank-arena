@@ -119,7 +119,7 @@ export function createLobbyUI(lobby: LobbyEvents): LobbyUI {
       roomSelect.appendChild(option);
     }
 
-    const firstAvailable = [...roomSelect.options].find(
+    const firstAvailable = Array.from(roomSelect.options).find(
       (option) => !option.disabled,
     );
 
