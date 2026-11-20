@@ -24,6 +24,11 @@ export class Entity {
     this.kind = kind;
   }
 
-  update(dt: number): void { this.position = this.position.add(this.velocity.scale(dt)); }
+  // Same Euler integration as before, but without two temporary Vector2 allocations.
+  update(dt: number): void {
+    this.position.x += this.velocity.x * dt;
+    this.position.y += this.velocity.y * dt;
+  }
+
   destroy(): void { this.dead = true; }
 }
