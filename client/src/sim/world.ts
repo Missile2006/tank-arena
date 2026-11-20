@@ -1,27 +1,30 @@
-
 import { handleCollisions } from './collision.js';
-import { emitGameEvent } from '../events/bus.ts';
+import { emitGameEvent } from '../events/bus.js';
+import { Entity } from './entity.js';
 
 export class World {
+  entities: Map<number, Entity>;
+  toRemove: Set<number>;
+  score: number;
   constructor() {
     // Усі сутності гри: id -> об'єкт
-    this.entities = new Map();
+    this.entities = new Map<number, Entity>();
 
     // Ідентифікатори об'єктів для видалення
-    this.toRemove = new Set();
+    this.toRemove = new Set<number>();
 
     // Ігровий рахунок
     this.score = 0;
   }
 
   // Додавання нової сутності
-  spawn(entity) {
+  spawn<T extends Entity>(entity: T): T {
     this.entities.set(entity.id, entity);
     return entity;
   }
 
   // Позначення сутності для видалення
-  despawn(entity) {
+  despawn(entity: Entity): void {
     if (!this.entities.has(entity.id)) {
       return;
     }
@@ -31,7 +34,7 @@ export class World {
   }
 
   // Генератор сутностей певного типу
-  *ofKind(kind) {
+  *ofKind(kind: string): Generator<Entity> {
     for (const entity of this.entities.values()) {
       if (entity.kind === kind && !entity.dead) {
         yield entity;
@@ -40,12 +43,12 @@ export class World {
   }
 
   // Надсилання подій гри через EventTarget
-  emit(type, detail = {}) {
+  emit(type: string, detail: Record<string, unknown> = {}): void {
     emitGameEvent(type, detail);
   }
 
   // Оновлення ігрового світу
-  step(dt) {
+  step(dt: number): void {
     // Оновлюємо всі активні сутності
     for (const entity of this.entities.values()) {
       if (!entity.dead) {
@@ -65,7 +68,7 @@ export class World {
   }
 
   // Очищення знищених сутностей
-  sweep() {
+  sweep(): void {
     for (const id of this.toRemove) {
       this.entities.delete(id);
     }

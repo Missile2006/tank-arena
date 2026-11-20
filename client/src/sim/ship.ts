@@ -1,9 +1,10 @@
-
-import { Entity } from './entity.ts';
-import { Vector2 } from './vector.ts';
+import { Entity } from './entity.js';
+import { Vector2 } from './vector.js';
 import { Bullet } from './bullet.js';
 
-export function integrate(ship, input, dt) {
+export interface ShipState { x: number; y: number; vx: number; vy: number; angle: number; }
+export interface ShipInput { forward?: boolean; backward?: boolean; left?: boolean; right?: boolean; }
+export function integrate(ship: ShipState, input: ShipInput, dt: number): ShipState {
   const acceleration = 220;
   const maxSpeed = 180;
   const rotationSpeed = 2.8;
@@ -57,8 +58,14 @@ export function integrate(ship, input, dt) {
 // Клас танка, який успадковується від Entity
 export class Ship extends Entity {
   #hp = 100;
+  angle = 0;
+  width = 40;
+  height = 50;
+  invulnerabilityTimer = 0;
+  animationTime = 0;
+  controls?: ShipInput;
 
-  constructor(x, y) {
+  constructor(x: number, y: number) {
     super({
       position: new Vector2(x, y),
       velocity: new Vector2(0, 0),
@@ -86,7 +93,7 @@ export class Ship extends Entity {
   }
 
   // Отримання пошкоджень
-  takeDamage(amount) {
+  takeDamage(amount: number): boolean {
     if (this.dead || amount <= 0 || this.invulnerable) {
       return false;
     }
@@ -104,7 +111,7 @@ export class Ship extends Entity {
   }
 
   // Відновлення здоров'я
-  heal(amount) {
+  heal(amount: number): void {
     if (this.dead || amount <= 0) {
       return;
     }
@@ -128,7 +135,7 @@ export class Ship extends Entity {
     return this.velocity.y;
   }
 
-  update(dt, input = this.controls ?? {}) {
+  override update(dt: number, input: ShipInput = this.controls ?? {}): void {
     // Зменшуємо час невразливості
     if (this.invulnerabilityTimer > 0) {
       this.invulnerabilityTimer = Math.max(
@@ -154,14 +161,14 @@ export class Ship extends Entity {
     this.angle = next.angle;
   }
 
-  wrap(width, height) {
+  wrap(width: number, height: number): void {
     this.position = new Vector2(
       ((this.position.x % width) + width) % width,
       ((this.position.y % height) + height) % height,
     );
   }
 
-  fire() {
+  fire(): Bullet {
     const direction = new Vector2(
       Math.sin(this.angle),
       -Math.cos(this.angle),

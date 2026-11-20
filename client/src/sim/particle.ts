@@ -1,15 +1,18 @@
+import { Entity } from './entity.js';
+import { Vector2 } from './vector.js';
 
-import { Entity } from './entity.ts';
-import { Vector2 } from './vector.ts';
-
+export interface ParticleOptions { position?: Vector2; velocity?: Vector2; ttl?: number; radius?: number; color?: string; }
 export class Particle extends Entity {
+  ttl: number;
+  maxTtl: number;
+  color: string;
   constructor({
     position = new Vector2(),
     velocity = new Vector2(),
     ttl = 0.5,
     radius = 3,
     color = '#facc15',
-  } = {}) {
+  }: ParticleOptions = {}) {
     super({
       position,
       velocity,
@@ -22,7 +25,7 @@ export class Particle extends Entity {
     this.color = color;
   }
 
-  update(dt) {
+  override update(dt: number): void {
     super.update(dt);
 
     this.ttl -= dt;
@@ -41,8 +44,8 @@ export class Particle extends Entity {
 }
 
 // Створення набору частинок у точці вибуху
-export function createExplosion(position, count = 16) {
-  const particles = [];
+export function createExplosion(position: Vector2, count = 16): Particle[] {
+  const particles: Particle[] = [];
 
   const colors = ['#facc15', '#f97316', '#ef4444'];
 
@@ -61,7 +64,7 @@ export function createExplosion(position, count = 16) {
         velocity,
         ttl: 0.4 + Math.random() * 0.4,
         radius: 2 + Math.random() * 3,
-        color: colors[i % colors.length],
+        color: colors[i % colors.length] ?? '#facc15',
       }),
     );
   }
