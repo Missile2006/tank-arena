@@ -1,5 +1,5 @@
 
-export function runEventLoopExperiments() {
+export function runEventLoopExperiments(): void {
   // Експеримент №1
   console.log('=== Experiment 1: Promise vs setTimeout ===');
 

@@ -1,17 +1,17 @@
-
-import { Entity } from './entity.ts';
+﻿
+import { Entity } from './entity';
 import { Ship } from './ship.js';
 
-export function demonstratePrototypes() {
+export function demonstratePrototypes(): void {
   console.log('=== PROTOTYPE DEMO ===');
 
   const tank = new Ship(100, 100);
 
-  // 1. Перевіряємо успадкування
+  // 1. РџРµСЂРµРІС–СЂСЏС”РјРѕ СѓСЃРїР°РґРєСѓРІР°РЅРЅСЏ
   console.log('Ship instance:', tank instanceof Ship);
   console.log('Entity instance:', tank instanceof Entity);
 
-  // 2. Отримуємо прототип об'єкта
+  // 2. РћС‚СЂРёРјСѓС”РјРѕ РїСЂРѕС‚РѕС‚РёРї РѕР±'С”РєС‚Р°
   const shipPrototype = Object.getPrototypeOf(tank);
 
   console.log(
@@ -19,7 +19,7 @@ export function demonstratePrototypes() {
     shipPrototype === Ship.prototype,
   );
 
-  // 3. Перевіряємо наступний рівень ланцюжка
+  // 3. РџРµСЂРµРІС–СЂСЏС”РјРѕ РЅР°СЃС‚СѓРїРЅРёР№ СЂС–РІРµРЅСЊ Р»Р°РЅС†СЋР¶РєР°
   const entityPrototype = Object.getPrototypeOf(shipPrototype);
 
   console.log(
@@ -27,14 +27,14 @@ export function demonstratePrototypes() {
     entityPrototype === Entity.prototype,
   );
 
-  // 4. Метод destroy() успадкований від Entity
+  // 4. РњРµС‚РѕРґ destroy() СѓСЃРїР°РґРєРѕРІР°РЅРёР№ РІС–Рґ Entity
   console.log('Before destroy:', tank.dead);
 
   tank.destroy();
 
   console.log('After destroy:', tank.dead);
 
-  // 5. Перевіряємо наявність методу у власних властивостях
+  // 5. РџРµСЂРµРІС–СЂСЏС”РјРѕ РЅР°СЏРІРЅС–СЃС‚СЊ РјРµС‚РѕРґСѓ Сѓ РІР»Р°СЃРЅРёС… РІР»Р°СЃС‚РёРІРѕСЃС‚СЏС…
   console.log(
     'Own destroy method:',
     Object.hasOwn(tank, 'destroy'),
@@ -45,3 +45,4 @@ export function demonstratePrototypes() {
     typeof tank.destroy === 'function',
   );
 }
+

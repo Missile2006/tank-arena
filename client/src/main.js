@@ -1,9 +1,9 @@
-﻿import './style.css';
+import './style.css';
 
 import { createChatUI } from './net/chat.ts';
 import { GameSocket } from './net/socket.ts';
 import { createNetgraph } from './net/netgraph.ts';
-//import { runEventLoopExperiments } from './experiments/event-loop.js';
+//import { runEventLoopExperiments } from './experiments/event-loop.ts';
 import { createInput } from './input.js';
 import { Ship } from './sim/ship.ts';
 import { World } from './sim/world.ts';
@@ -12,13 +12,13 @@ import { Vector2 } from './sim/vector.js';
 import { createLoop } from './loop.js';
 import { drawHUD } from './render/hud.ts';
 import { setupCanvas } from './render/canvas.js';
-import { applyHoming } from './sim/homing.js';
+import { applyHoming } from './sim/homing.ts';
 import { createHealthPickup } from './sim/pickup.ts';
 import { fetchJson, loadAll } from './assets/loader.ts';
 import { drawLoading } from './render/loading.ts';
 import { emitGameEvent, gameEvents } from './events/bus.js';
 import { createAudioSystem } from './audio/audio.ts';
-import { Lobby } from './lobby/lobby.js';
+import { Lobby } from './lobby/lobby.ts';
 import { createLobbyUI } from './lobby/lobby-ui.ts';
 import {
   createShip,

@@ -1,8 +1,9 @@
+import type { Entity } from './entity.js';
 
-import { Vector2 } from './vector.ts';
+import { Vector2 } from './vector.js';
 
 // Додає об'єкту поведінку самонаведення
-export function applyHoming(entity, target, dt, strength = 3) {
+export function applyHoming(entity: Entity | null, target: Entity | null, dt: number, strength = 3): void {
   if (!entity || !target || entity.dead || target.dead) {
     return;
   }
