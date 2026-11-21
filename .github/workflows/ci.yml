@@ -19,7 +19,10 @@ jobs:
       - run: npm run build -w tank-arena-client
       - run: npm run build -w tank-arena-server
       - run: npx playwright install --with-deps chromium
-      - run: npx playwright test
+      - name: Run Playwright E2E tests
+        run: npx playwright test
+        env:
+          ALLOWED_ORIGINS: 'http://127.0.0.1:3000,http://localhost:3000'
       - uses: actions/upload-artifact@v4
         if: failure()
         with:
