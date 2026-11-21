@@ -1,5 +1,7 @@
-﻿
+
 import { randomUUID } from 'node:crypto';
+import { config } from './config.js';
+import { recordInbound, recordOutbound } from './traffic-metrics.js';
 import { WebSocket, WebSocketServer } from 'ws';
 import type { Server } from 'node:http';
 import type { Room } from './room.js';
@@ -25,7 +27,9 @@ function sendJson(socket: WebSocket, message: unknown): void {
     return;
   }
 
-  socket.send(JSON.stringify(message));
+  const data = JSON.stringify(message);
+  socket.send(data);
+  recordOutbound(Buffer.byteLength(data));
 }
 
 function broadcast(room: Room, message: unknown): void {
@@ -37,10 +41,48 @@ function broadcast(room: Room, message: unknown): void {
 }
 
 export function setupWebSocket(server: Server, roomManager: RoomManager, eventLogger: EventLogger): WebSocketServer {
-  const wss = new WebSocketServer({
-    server,
-    path: '/ws',
-    maxPayload: MAX_MESSAGE_BYTES,
+  const connectionsByIp = new Map<string, number>();
+  // noServer ensures the IP slot is reserved synchronously before handshake.
+  const wss = new WebSocketServer({ noServer: true, maxPayload: MAX_MESSAGE_BYTES });
+
+  server.on('upgrade', (request, socket, head) => {
+    const reject = (status: number, reason: string) => {
+      socket.end(`HTTP/1.1 ${status} ${reason}\r\nConnection: close\r\nContent-Length: 0\r\n\r\n`);
+    };
+    if (request.url?.split('?')[0] !== '/ws') {
+      reject(404, 'Not Found');
+      return;
+    }
+    const origin = request.headers.origin;
+    if (!origin || !config.allowedOrigins.includes(origin)) {
+      reject(403, 'Forbidden');
+      return;
+    }
+    const ip = request.socket.remoteAddress ?? 'unknown';
+    const count = connectionsByIp.get(ip) ?? 0;
+    if (count >= config.maxConnectionsPerIp) {
+      reject(429, 'Too Many Requests');
+      return;
+    }
+    connectionsByIp.set(ip, count + 1);
+    let released = false;
+    const release = () => {
+      if (released) return;
+      released = true;
+      const remaining = (connectionsByIp.get(ip) ?? 1) - 1;
+      if (remaining <= 0) connectionsByIp.delete(ip);
+      else connectionsByIp.set(ip, remaining);
+    };
+    socket.once('close', release);
+    try {
+      wss.handleUpgrade(request, socket, head, (client) => {
+        wss.emit('connection', client, request);
+      });
+    } catch (error) {
+      release();
+      socket.destroy();
+      console.error('WebSocket upgrade error:', error);
+    }
   });
 
   wss.on('connection', (socket: PlayerSocket) => {
@@ -84,6 +126,7 @@ export function setupWebSocket(server: Server, roomManager: RoomManager, eventLo
     });
 
     socket.on('message', (raw, isBinary) => {
+      recordInbound(Array.isArray(raw) ? raw.reduce((total, chunk) => total + chunk.byteLength, 0) : raw.byteLength);
       messagesThisSecond++;
 
       if (messagesThisSecond > MAX_MESSAGES_PER_SECOND) {

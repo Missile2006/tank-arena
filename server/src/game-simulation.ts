@@ -22,11 +22,19 @@ export interface ServerAsteroid {
   id: number; x: number; y: number; vx: number; vy: number;
   radius: number; hp: number; turnPhase: number;
 }
+export interface ServerPickup {
+  id: number;
+  x: number;
+  y: number;
+  radius: number;
+  healAmount: number;
+}
 export interface ServerSnapshot {
   type: 'snapshot'; tick: number;
   players: Array<Pick<ServerShip, 'id' | 'x' | 'y' | 'vx' | 'vy' | 'angle' | 'hp' | 'destroyed'> & {lastProcessedSeq: number}>;
   bullets: Array<Pick<ServerBullet, 'id' | 'ownerId' | 'x' | 'y' | 'vx' | 'vy'>>;
   asteroids: Array<Pick<ServerAsteroid, 'id' | 'x' | 'y' | 'radius' | 'hp'>>;
+  pickups: ServerPickup[];
 }
 export class GameSimulation {
   readonly room: Room;
@@ -38,12 +46,28 @@ export class GameSimulation {
   nextBulletId = 1;
   readonly lastFireTick = new Map<string, number>();
   asteroids: ServerAsteroid[] = [];
+  pickups: ServerPickup[] = [];
+
+  private pickupRespawnAt = 0;
+
+  private createPickup(): ServerPickup {
+    const margin = 50;
+
+    return {
+      id: 1,
+      x: margin + Math.random() * (900 - margin * 2),
+      y: margin + Math.random() * (550 - margin * 2),
+      radius: 15,
+      healAmount: 25,
+    };
+  }
   tick = 0;
   private nextAsteroidId = 1;
   private readonly asteroidRespawns: number[] = [];
 
   constructor(room: Room) {
     this.room = room;
+    this.pickups = [this.createPickup()];
 
     // Гравці та їхні команди
 
@@ -316,6 +340,8 @@ export class GameSimulation {
     // 6. Перевірка зіткнень танків з астероїдами
     this.checkAsteroidCollisions();
 
+    this.checkPickupCollisions();
+
     // 7. Наступний серверний такт
     this.tick += 1;
   }
@@ -375,7 +401,46 @@ export class GameSimulation {
       (asteroid) => !destroyedAsteroidIds.has(asteroid.id),
     );
   }
+  checkPickupCollisions(): void {
+    const now = this.tick * FIXED_DT;
 
+    if (this.pickups.length === 0) {
+      if (this.pickupRespawnAt > 0 && now >= this.pickupRespawnAt) {
+        this.pickups.push(this.createPickup());
+
+        this.pickupRespawnAt = 0;
+      }
+
+      return;
+    }
+
+    for (const ship of this.ships.values()) {
+      if (ship.destroyed || ship.hp >= 100) {
+        continue;
+      }
+
+      for (const pickup of this.pickups) {
+        const dx = ship.x - pickup.x;
+        const dy = ship.y - pickup.y;
+
+        const collisionDistance = 20 + pickup.radius;
+
+        if (dx * dx + dy * dy > collisionDistance * collisionDistance) {
+          continue;
+        }
+
+        ship.hp = Math.min(100, ship.hp + pickup.healAmount);
+
+        this.pickups = this.pickups.filter(
+          (item) => item.id !== pickup.id,
+        );
+
+        this.pickupRespawnAt = now + 10;
+
+        return;
+      }
+    }
+  }
   // Перевірка зіткнень танків з астероїдами
   checkAsteroidCollisions(): void {
     const now = this.tick * FIXED_DT;
@@ -465,6 +530,13 @@ export class GameSimulation {
     return {
       type: 'snapshot',
       tick: this.tick,
+      pickups: this.pickups.map((pickup) => ({
+      id: pickup.id,
+      x: pickup.x,
+      y: pickup.y,
+      radius: pickup.radius,
+      healAmount: pickup.healAmount,
+    })),
 
       // Астероїди
       asteroids: this.asteroids.map((asteroid) => ({

@@ -19,6 +19,8 @@ export interface InputState {
 
 export const TICK_RATE = 30;
 export const FIXED_DT = 1 / TICK_RATE;
+export const ARENA_WIDTH = 900;
+export const ARENA_HEIGHT = 550;
 
 export const ACCELERATION = 220;
 export const MAX_SPEED = 180;
@@ -50,6 +52,13 @@ export function normalizeInput(input: Partial<InputState> = {}): InputState {
         ? input.seq
         : 0,
   };
+}
+
+export function wrapCoordinate(
+  value: number,
+  size: number,
+): number {
+  return ((value % size) + size) % size;
 }
 
 export function integrate(ship: ShipState, rawInput: Partial<InputState>, dt = FIXED_DT): ShipState {
@@ -95,8 +104,15 @@ export function integrate(ship: ShipState, rawInput: Partial<InputState>, dt = F
     ship.vy *= scale;
   }
 
-  ship.x += ship.vx * dt;
-  ship.y += ship.vy * dt;
+  ship.x = wrapCoordinate(
+    ship.x + ship.vx * dt,
+    ARENA_WIDTH,
+  );
+
+  ship.y = wrapCoordinate(
+    ship.y + ship.vy * dt,
+    ARENA_HEIGHT,
+  );
 
   return ship;
 }

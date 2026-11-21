@@ -1,0 +1,39 @@
+
+services:
+  tank-arena:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: tank-arena:lab8
+    container_name: tank-arena-lab8
+    restart: unless-stopped
+
+    ports:
+      - "3000:3000"
+
+    environment:
+      NODE_ENV: production
+      HOST: 0.0.0.0
+      PORT: "3000"
+      LOG_DIR: /app/server/logs
+      ALLOWED_ORIGINS: "http://localhost:3000,http://127.0.0.1:3000,http://localhost:5173,http://127.0.0.1:5173"
+      MAX_CONNECTIONS_PER_IP: "5"
+      MAX_ROOMS: "50"
+      MAX_PLAYERS_PER_ROOM: "4"
+
+    volumes:
+      - tank-arena-logs:/app/server/logs
+
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch('http://127.0.0.1:3000/ready').then(r => { if (!r.ok) process.exit(1) }).catch(() => process.exit(1))"
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+volumes:
+  tank-arena-logs:

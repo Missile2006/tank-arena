@@ -13,7 +13,6 @@ import { createLoop } from './loop.js';
 import { drawHUD } from './render/hud';
 import { setupCanvas } from './render/canvas.js';
 import { applyHoming } from './sim/homing';
-import { createHealthPickup } from './sim/pickup';
 import { fetchJson, loadAll } from './assets/loader';
 import { drawLoading } from './render/loading';
 import { emitGameEvent, gameEvents } from './events/bus';
@@ -37,10 +36,11 @@ import {
 interface PlayerState extends ShipState { hp: number; destroyed: boolean; lastProcessedSeq?: number; }
 interface ServerBullet { id: number; x: number; y: number; vx: number; vy: number; }
 interface ServerAsteroid { id: number; x: number; y: number; radius: number; hp: number; }
+interface ServerPickup { id: number; x: number; y: number; radius: number; healAmount: number; }
 interface ExplosionParticle { x: number; y: number; vx: number; vy: number; life: number; maxLife: number; radius: number; }
 interface PredictedBullet { x: number; y: number; vx: number; vy: number; ttl: number; createdAt: number; }
 interface SnapshotFrame { time: number; players: PlayerState[]; }
-interface NetworkMessage { type: string; tick?: number; players?: PlayerState[]; bullets?: ServerBullet[]; asteroids?: ServerAsteroid[]; playerId?: string; room?: LobbyRoom; playerName?: string; text?: string; message?: string; }
+interface NetworkMessage { type: string; tick?: number; players?: PlayerState[]; bullets?: ServerBullet[]; asteroids?: ServerAsteroid[]; playerId?: string; room?: LobbyRoom; playerName?: string; text?: string; message?: string; pickups?: ServerPickup[]; }
 interface GameEvent<T> extends CustomEvent<T> {}
 const customEvent = <T>(event: Event): CustomEvent<T> => event as CustomEvent<T>;
 
@@ -81,6 +81,7 @@ const NETWORK_INPUT_DT = 1 / 30;
 let serverPlayers: PlayerState[] = [];
 let serverBullets: ServerBullet[] = [];
 let serverAsteroids: ServerAsteroid[] = [];
+let serverPickups: ServerPickup[] = [];
 let asteroidExplosions: ExplosionParticle[] = [];
 // РћСЃС‚Р°РЅРЅС–Р№ РїС–РґС‚РІРµСЂРґР¶РµРЅРёР№ СЃРµСЂРІРµСЂРѕРј СЃС‚Р°РЅ Р·РґРѕСЂРѕРІвЂ™СЏ РєРѕР¶РЅРѕРіРѕ С‚Р°РЅРєР°
 const previousPlayerStates = new Map<string, { hp: number; destroyed: boolean }>();
@@ -150,11 +151,6 @@ let respawnTimer = 0;
 
 // РђСЃС‚РµСЂРѕС—РґРё СЃС‚РІРѕСЂСЋРІР°С‚РёРјСѓС‚СЊСЃСЏ РїС–СЃР»СЏ РІРёР±РѕСЂСѓ РєС–РјРЅР°С‚Рё
 let homingAsteroid = null;
-
-// РђРїС‚РµС‡РєР° РґР»СЏ РІС–РґРЅРѕРІР»РµРЅРЅСЏ Р·РґРѕСЂРѕРІ'СЏ
-world.spawn(
-  createHealthPickup(new Vector2(450, 350), 25),
-);
 
 // РџРѕРїРµСЂРµРґРЅСЏ РїРѕР·РёС†С–СЏ С‚Р°РЅРєР° РґР»СЏ С–РЅС‚РµСЂРїРѕР»СЏС†С–С—
 let previousTank = {
@@ -262,10 +258,26 @@ function getInterpolatedPlayers() {
       return player;
     }
 
+    const dx =
+      ((player.x - previous.x + WIDTH / 2) % WIDTH +
+        WIDTH) %
+        WIDTH -
+      WIDTH / 2;
+
+    const dy =
+      ((player.y - previous.y + HEIGHT / 2) % HEIGHT +
+        HEIGHT) %
+        HEIGHT -
+      HEIGHT / 2;
+
     return {
       ...player,
-      x: previous.x + (player.x - previous.x) * alpha,
-      y: previous.y + (player.y - previous.y) * alpha,
+      x:
+        ((previous.x + dx * alpha) % WIDTH + WIDTH) %
+        WIDTH,
+      y:
+        ((previous.y + dy * alpha) % HEIGHT + HEIGHT) %
+        HEIGHT,
       angle:
         previous.angle +
         (player.angle - previous.angle) * alpha,
@@ -527,8 +539,8 @@ function drawParticles() {
 
 // РњР°Р»СЋРІР°РЅРЅСЏ Р°РїС‚РµС‡РѕРє
 function drawPickups() {
-  for (const pickup of world.ofKind('pickup')) {
-    const { x, y } = pickup.position;
+  for (const pickup of serverPickups) {
+    const { x, y } = pickup;
 
     ctx.save();
 
@@ -601,10 +613,17 @@ function reconcileLocalShip(serverShip: PlayerState | null) {
     );
   }
 
-  // Р—Р±РµСЂС–РіР°С”РјРѕ СЂС–Р·РЅРёС†СЋ РјС–Р¶ СЃС‚Р°СЂРёРј С– РЅРѕРІРёРј РїРѕР»РѕР¶РµРЅРЅСЏРј
-  correctionX += oldX - predictedShip.x;
-  correctionY += oldY - predictedShip.y;
-}
+  const deltaX = oldX - predictedShip.x;
+    const deltaY = oldY - predictedShip.y;
+
+    correctionX +=
+      ((deltaX + WIDTH / 2) % WIDTH + WIDTH) % WIDTH -
+      WIDTH / 2;
+
+    correctionY +=
+      ((deltaY + HEIGHT / 2) % HEIGHT + HEIGHT) % HEIGHT -
+      HEIGHT / 2;
+  }
 function predictBullet() {
   if (!predictedShip || serverPlayers.find((ship) => ship.id === playerId)?.destroyed) return;
 
@@ -1020,6 +1039,7 @@ if (message.type === 'snapshot') {
     serverPlayers = snapshot.players ?? [];
     serverBullets = snapshot.bullets ?? [];
     const nextAsteroids = snapshot.asteroids ?? [];
+    serverPickups = snapshot.pickups ?? [];
 
     for (const oldAsteroid of serverAsteroids) {
       const stillExists = nextAsteroids.some(
@@ -1109,6 +1129,7 @@ if (message.type === 'snapshot') {
     serverPlayers = [];
     serverBullets = [];
     serverAsteroids = [];
+    serverPickups = [];
     predictedBullets = [];
     lastPredictedFireTime = -Infinity;
 

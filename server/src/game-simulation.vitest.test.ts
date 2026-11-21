@@ -54,3 +54,92 @@ describe('server simulation', () => {
   });
 });
 
+describe('health pickups', () => {
+  it('restores 25 HP and removes the pickup', () => {
+    const game = makeGame();
+    game.addPlayer(ID);
+
+    const ship = game.ships.get(ID)!;
+    const pickup = game.pickups[0]!;
+
+    ship.hp = 50;
+    ship.x = pickup.x;
+    ship.y = pickup.y;
+
+    game.checkPickupCollisions();
+
+    expect(ship.hp).toBe(75);
+    expect(game.pickups).toHaveLength(0);
+  });
+
+  it('does not heal above 100 HP', () => {
+    const game = makeGame();
+    game.addPlayer(ID);
+
+    const ship = game.ships.get(ID)!;
+    const pickup = game.pickups[0]!;
+
+    ship.hp = 90;
+    ship.x = pickup.x;
+    ship.y = pickup.y;
+
+    game.checkPickupCollisions();
+
+    expect(ship.hp).toBe(100);
+    expect(game.pickups).toHaveLength(0);
+  });
+
+  it('does not consume pickup at full health', () => {
+    const game = makeGame();
+    game.addPlayer(ID);
+
+    const ship = game.ships.get(ID)!;
+    const pickup = game.pickups[0]!;
+
+    ship.hp = 100;
+    ship.x = pickup.x;
+    ship.y = pickup.y;
+
+    game.checkPickupCollisions();
+
+    expect(ship.hp).toBe(100);
+    expect(game.pickups).toHaveLength(1);
+  });
+
+  it('respawns pickup after 10 seconds', () => {
+    const game = makeGame();
+    game.addPlayer(ID);
+
+    const ship = game.ships.get(ID)!;
+    const pickup = game.pickups[0]!;
+
+    ship.hp = 50;
+    ship.x = pickup.x;
+    ship.y = pickup.y;
+
+    game.checkPickupCollisions();
+
+    expect(game.pickups).toHaveLength(0);
+
+    game.tick = 299;
+    game.checkPickupCollisions();
+
+    expect(game.pickups).toHaveLength(0);
+
+    game.tick = 300;
+    game.checkPickupCollisions();
+
+    expect(game.pickups).toHaveLength(1);
+  });
+
+  it('spawns pickup inside arena boundaries', () => {
+    const game = makeGame();
+    const pickup = game.pickups[0]!;
+
+    expect(pickup.x).toBeGreaterThanOrEqual(50);
+    expect(pickup.x).toBeLessThanOrEqual(850);
+
+    expect(pickup.y).toBeGreaterThanOrEqual(50);
+    expect(pickup.y).toBeLessThanOrEqual(500);
+  });
+});

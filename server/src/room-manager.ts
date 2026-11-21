@@ -1,5 +1,6 @@
-﻿import { randomUUID } from 'node:crypto';
+import { randomUUID } from 'node:crypto';
 import { Room } from './room.js';
+import { config } from './config.js';
 
 export interface CreateRoomOptions {
   readonly id?: string;
@@ -21,6 +22,12 @@ export class RoomManager {
     if (!Number.isInteger(asteroidCount) || asteroidCount < 0 || asteroidCount > 50) throw new Error('Invalid asteroidCount');
     if (typeof persistent !== 'boolean') throw new Error('Invalid persistent value');
     if (this.rooms.has(id)) throw new Error('Room already exists');
+    if (this.rooms.size >= config.maxRooms) {
+      throw Object.assign(new Error('Maximum number of rooms reached'), { statusCode: 429 });
+    }
+    if (maxPlayers > config.maxPlayersPerRoom) {
+      throw Object.assign(new Error('Room player limit exceeded'), { statusCode: 400 });
+    }
     const room = new Room({ id, name: name.trim(), maxPlayers, asteroidCount });
     room.on('empty', () => {
       if (persistent) { console.log(`Persistent room remains: ${room.name}`); return; }

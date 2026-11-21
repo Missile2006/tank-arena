@@ -1,9 +1,10 @@
 
-import fs from 'node:fs';
+import pino from 'pino';
 import path from 'node:path';
-import { PassThrough, Transform, pipeline } from 'node:stream';
+import fs from 'node:fs';
 
 export type EventName = 'join' | 'chat' | 'leave' | (string & {});
+
 export interface EventLogger {
   readonly logPath: string;
   log(type: EventName, data?: Record<string, unknown>): boolean;
@@ -11,75 +12,76 @@ export interface EventLogger {
 }
 
 export function createEventLogger(logDir: string): EventLogger {
-  // Створюємо директорію для логів
   fs.mkdirSync(logDir, { recursive: true });
 
   const logPath = path.join(logDir, 'events.ndjson');
 
-  // Потік, до якого надходитимуть події
-  const source = new PassThrough({
-    objectMode: true,
-    highWaterMark: 100,
+  const destination = pino.destination({
+    dest: logPath,
+    sync: false,
   });
 
-  // Перетворюємо об'єкти JavaScript на рядки NDJSON
-  const transform = new Transform({
-    writableObjectMode: true,
-
-    transform(event, encoding, callback) {
-      try {
-        const line = `${JSON.stringify(event)}\n`;
-        callback(null, line);
-      } catch (error) {
-        callback(error instanceof Error ? error : new Error(String(error)));
-      }
+  const logger = pino(
+    {
+      level: 'info',
+      base: {
+        service: 'tank-arena-server',
+      },
+      redact: {
+        paths: [
+          'password',
+          'token',
+          'secret',
+          'authorization',
+          'data.password',
+          'data.token',
+          'data.secret',
+        ],
+        censor: '[REDACTED]',
+      },
     },
-  });
+    destination,
+  );
 
-  // Записуємо події у файл, не перезаписуючи старі
-  const destination = fs.createWriteStream(logPath, {
-    flags: 'a',
-    encoding: 'utf8',
-  });
-
-  let loggerError: Error | null = null;
   let closed = false;
 
-  pipeline(source, transform, destination, (error) => {
-    if (error) {
-      loggerError = error;
-      console.error('Event logger failed:', error.message);
-    } else {
-      console.log('Event logger closed');
-    }
-  });
-
-  function log(type: EventName, data: Record<string, unknown> = {}): boolean {
-    if (closed || loggerError || source.destroyed) {
+  function log(
+    type: EventName,
+    data: Record<string, unknown> = {},
+  ): boolean {
+    if (closed) {
       return false;
     }
 
-    return source.write({
-      timestamp: new Date().toISOString(),
-      type,
-      ...data,
-    });
+    logger.info(
+      {
+        event: type,
+        ...data,
+      },
+      `Game event: ${type}`,
+    );
+
+    return true;
   }
 
-  function close(): Promise<void> {
-  return new Promise<void>((resolve, reject) => {
+  async function close(): Promise<void> {
     if (closed) {
-      resolve();
       return;
     }
 
     closed = true;
 
-    destination.once('finish', resolve);
-    destination.once('error', reject);
-
-    source.end();
+    await new Promise<void>((resolve, reject) => {
+      destination.flush((error?: Error | null) => {
+        if (error) {
+          reject(error);
+        } else {
+          resolve();
+        }
+      });
     });
+
+    destination.end();
   }
 
   return {

@@ -88,3 +88,45 @@ describe('message parsing', () => {
   });
   it('assertNever rejects unknown variants', () => expect(() => assertNever('unknown' as never)).toThrow());
 });
+
+describe('Arena screen wrapping', () => {
+  it('wraps ship from right to left', () => {
+    const ship = createShip('test', 899, 275);
+    ship.vx = 180;
+
+    integrate(ship, {}, 1 / 30);
+
+    expect(ship.x).toBeGreaterThanOrEqual(0);
+    expect(ship.x).toBeLessThan(20);
+  });
+
+  it('wraps ship from left to right', () => {
+    const ship = createShip('test', 1, 275);
+    ship.vx = -180;
+
+    integrate(ship, {}, 1 / 30);
+
+    expect(ship.x).toBeGreaterThan(880);
+    expect(ship.x).toBeLessThan(900);
+  });
+
+  it('wraps ship from bottom to top', () => {
+    const ship = createShip('test', 450, 549);
+    ship.vy = 180;
+
+    integrate(ship, {}, 1 / 30);
+
+    expect(ship.y).toBeGreaterThanOrEqual(0);
+    expect(ship.y).toBeLessThan(20);
+  });
+
+  it('wraps ship from top to bottom', () => {
+    const ship = createShip('test', 450, 1);
+    ship.vy = -180;
+
+    integrate(ship, {}, 1 / 30);
+
+    expect(ship.y).toBeGreaterThan(530);
+    expect(ship.y).toBeLessThan(550);
+  });
+});

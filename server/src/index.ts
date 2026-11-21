@@ -11,6 +11,8 @@ import { setupWebSocket } from './websocket.ts';
 import { createEventLogger } from './logger.ts';
 import { createGameLoop } from './game-loop.ts';
 import { encodeSnapshot } from 'tank-arena-shared/protocol';
+import { performance } from 'node:perf_hooks';
+import { recordOutbound, sampleTrafficMetrics } from './traffic-metrics.ts';
 
 const createRoomSchema = z.strictObject({
   name: z.string().trim().min(1).max(50),
@@ -39,6 +41,10 @@ const roomManager = new RoomManager();
 const eventLogger = createEventLogger(config.logDir);
 
 const tickDurations: number[] = [];
+
+let totalTicks = 0;
+let previousEventLoopUtilization =
+  performance.eventLoopUtilization();
 
 function percentile(values: number[], p: number): number {
   if (values.length === 0) return 0;
@@ -80,14 +86,18 @@ const gameLoop = createGameLoop(({ tick, dt }) => {
 
       if (useBinary) {
         socket.send(binaryData, { binary: true });
+        recordOutbound(binaryData.byteLength);
       } else {
         socket.send(jsonData);
+        recordOutbound(Buffer.byteLength(jsonData));
       }
     }
   }
 
     const tickDuration = performance.now() - tickStart;
-  tickDurations.push(tickDuration);
+
+    totalTicks += 1;
+    tickDurations.push(tickDuration);
 
   if (tickDurations.length >= 300) {
     const p50 = percentile(tickDurations, 50);
@@ -262,6 +272,7 @@ async function readJsonBody(req: IncomingMessage): Promise<unknown> {
   }
 }
 
+let serverReady = false;
 const server = http.createServer(async (req, res) => {
   try {
     const url = new URL(
@@ -275,11 +286,60 @@ const server = http.createServer(async (req, res) => {
         status: 'ok',
         service: 'tank-arena-server',
         uptime: process.uptime(),
+        gitSha: config.gitSha,
       });
 
       return;
     }
 
+    if (req.method === 'GET' && url.pathname === '/ready') {
+      sendJson(res, serverReady ? 200 : 503, {
+        status: serverReady ? 'ready' : 'not_ready',
+        service: 'tank-arena-server',
+      });
+
+      return;
+    }
+
+    if (req.method === 'GET' && url.pathname === '/metrics') {
+    const rooms = [...roomManager.rooms.values()];
+
+    const players = rooms.reduce(
+      (total, room) => total + room.playerCount,
+      0,
+    );
+
+    const currentEventLoopUtilization =
+      performance.eventLoopUtilization();
+
+    const eventLoopDelta = performance.eventLoopUtilization(
+      currentEventLoopUtilization,
+      previousEventLoopUtilization
+    );
+
+    previousEventLoopUtilization = currentEventLoopUtilization;
+
+    sendJson(res, 200, {
+      service: 'tank-arena-server',
+      uptimeSeconds: Math.round(process.uptime()),
+      rooms: rooms.length,
+      players,
+      totalTicks,
+      ...sampleTrafficMetrics(),
+      tickDurationMs: {
+        p50: percentile(tickDurations, 50),
+        p95: percentile(tickDurations, 95),
+        p99: percentile(tickDurations, 99),
+      },
+      memoryUsageMb: Math.round(
+        process.memoryUsage().rss / 1024 / 1024,
+      ),
+      eventLoopUtilization: eventLoopDelta.utilization,
+    });
+
+    return;
+  }
+  
     // Отримання списку кімнат
     if (
       req.method === 'GET' &&
@@ -341,7 +401,10 @@ server.listen(config.port, config.host, () => {
   console.log('Status: running');
 
   gameLoop.start();
+  serverReady = true;
+
   console.log('Game loop started: 30 ticks/sec');
+  console.log('Server readiness: ready');
 });
 
 
@@ -353,6 +416,7 @@ async function gracefulShutdown(signal: string): Promise<void> {
   }
 
   shuttingDown = true;
+  serverReady = false;
   gameLoop.stop();
 
   console.log(`\nReceived ${signal}`);
@@ -363,8 +427,14 @@ async function gracefulShutdown(signal: string): Promise<void> {
     server.close(() => resolve());
   });
 
-  // Закриваємо активні WebSocket-з'єднання
   for (const client of wss.clients) {
+    if (client.readyState === 1) {
+      client.send(JSON.stringify({
+        type: 'shutdown',
+        reason: 'Server shutting down',
+      }));
+    }
+
     client.close(1001, 'Server shutting down');
   }
 
