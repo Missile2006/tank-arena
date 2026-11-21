@@ -56,16 +56,40 @@ const environmentSchema = z.object({
 
 const environment = environmentSchema.parse(process.env);
 
+// Render supplies the actual public HTTPS URL at runtime. Allow only that
+// exact origin (in addition to explicitly configured origins); never allow '*'.
+// This also works when Render assigns a suffix to the service hostname.
+const renderOrigin = (() => {
+  const publicUrl = process.env.RENDER_EXTERNAL_URL;
+  if (!publicUrl) return null;
+  try {
+    const parsed = new URL(publicUrl);
+    if (parsed.protocol !== 'https:' || !parsed.hostname.endsWith('.onrender.com')) {
+      return null;
+    }
+    return parsed.origin;
+  } catch {
+    return null;
+  }
+})();
+
+const allowedOrigins = [...new Set([
+  ...environment.ALLOWED_ORIGINS,
+  ...(renderOrigin ? [renderOrigin] : []),
+])];
+
 export const config = Object.freeze({
   port: environment.PORT,
   host: environment.HOST,
   logDir: path.resolve(serverDir, environment.LOG_DIR),
 
-  allowedOrigins: environment.ALLOWED_ORIGINS,
+  allowedOrigins,
   maxConnectionsPerIp: environment.MAX_CONNECTIONS_PER_IP,
   maxRooms: environment.MAX_ROOMS,
   maxPlayersPerRoom: environment.MAX_PLAYERS_PER_ROOM,
 
   logLevel: environment.LOG_LEVEL,
-  gitSha: environment.GIT_SHA,
+  gitSha: environment.GIT_SHA === 'local'
+    ? (process.env.RENDER_GIT_COMMIT ?? 'local')
+    : environment.GIT_SHA,
 });

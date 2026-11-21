@@ -1,0 +1,26 @@
+# Tank Arena - free Render Web Service with HTTPS and WSS.
+# Render builds the existing optimized Dockerfile; no separate frontend needed.
+services:
+  - type: web
+    name: tank-arena-missile2006
+    runtime: docker
+    plan: free
+    branch: lab-08-development
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    healthCheckPath: /ready
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: HOST
+        value: 0.0.0.0
+      - key: PORT
+        value: '3000'
+      - key: LOG_DIR
+        value: /app/server/logs
+      - key: MAX_CONNECTIONS_PER_IP
+        value: '5'
+      - key: MAX_ROOMS
+        value: '50'
+      - key: MAX_PLAYERS_PER_ROOM
+        value: '4'
