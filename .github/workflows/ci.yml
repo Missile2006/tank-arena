@@ -15,7 +15,9 @@ jobs:
       - run: npm run typecheck
       - run: npm run lint -w tank-arena-client
       - run: npx vitest run --coverage
-      - run: npm run build
+      # Playwright starts the server using npm run start, which requires server/dist/index.js.
+      - run: npm run build -w tank-arena-client
+      - run: npm run build -w tank-arena-server
       - run: npx playwright install --with-deps chromium
       - run: npx playwright test
       - uses: actions/upload-artifact@v4
